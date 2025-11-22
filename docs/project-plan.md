@@ -322,12 +322,14 @@ From investigation of DEU FSI German Basic Course Drills deck:
 
 **Open Questions:**
 
-1. **What exactly is the FSI deck's note type name?** ⚠️ User Action Required
+1. **What exactly is the FSI deck's note type name?** ✅ **RESOLVED**
 
-   - **Status**: Can be discovered using built commands
-   - **Resolution**: User runs `skill: anki list-note-types` and `skill: anki describe-deck-note-types --deck "DEU FSI German Basic Course Drills"`
-   - **Impact**: Low - framework supports any note type name
-   - **Example provided**: Documentation uses "FSI German Drills" as placeholder
+   - **Status**: Discovered via `skill: anki list-note-types`
+   - **Actual Name**: **"NTIS_Grammar"** (not "FSI German Drills")
+   - **Fields**: Prompt1, Prompt2, Answer (confirmed match)
+   - **Type**: Standard note type
+   - **Impact**: None - framework already supports this note type
+   - **Documentation**: Examples use "FSI German Drills" as placeholder, but any name works
 
 2. **Does the FSI note type have any custom JavaScript/CSS?** ℹ️ Low Priority
 
@@ -378,8 +380,8 @@ From investigation of DEU FSI German Basic Course Drills deck:
 ### Blocker Summary
 
 - **Blocking Issues**: 0
-- **User Action Items**: 1 (optional - discover FSI note type name from their collection)
-- **Resolved Issues**: 6/6
+- **User Action Items**: 0 (FSI note type discovered: "NTIS_Grammar")
+- **Resolved Issues**: 7/7 (all open questions + potential issues)
 - **Deferred to Future**: 1 (multiple templates support)
 
 **Risk Assessment:**
