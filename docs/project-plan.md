@@ -121,15 +121,15 @@ From investigation of DEU FSI German Basic Course Drills deck:
 
 ### Step 4: Update Input Parsing (JSON/CSV) 🔶 Important
 
-- [ ] Modify JSON parser to accept `fields` object
-- [ ] Maintain backward compatibility with `front`/`back` keys
-- [ ] Update CSV parser for flexible columns
+- [x] Modify JSON parser to accept `fields` object
+- [x] Maintain backward compatibility with `front`/`back` keys
+- [x] Update CSV parser for flexible columns
   - Auto-detect columns from header row
   - Map column names to note type fields (case-insensitive)
-- [ ] Add validation for CSV format with non-standard fields
-- [ ] Update example files in documentation
+- [x] Add validation for CSV format with non-standard fields
+- [x] Update example files in documentation
 
-**Status**: Not started
+**Status**: ✅ Complete (implemented in Step 3 commit 60cd5eb)
 
 **Reasoning**: Users need to provide data for arbitrary fields. JSON can use nested `fields` object, CSV needs flexible column mapping. Both must work intuitively for different note types.
 
