@@ -2,10 +2,8 @@
 
 import json
 import sys
-import tempfile
-from io import StringIO
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -16,7 +14,8 @@ sys.modules["anki.errors"] = MagicMock()
 
 # Now we can safely import from the .claude/skills/anki directory
 sys.path.insert(0, str(Path(__file__).parent))
-import main  # noqa: E402
+# Import click for real (after main import which tries to import it)
+import click
 from main import (  # noqa: E402
     add_cards,
     describe_deck,
@@ -27,10 +26,6 @@ from main import (  # noqa: E402
     list_decks,
     read_cards,
 )
-
-# Import click for real (after main import which tries to import it)
-import click
-from click.testing import CliRunner
 
 
 def test_get_collection_path_from_env(monkeypatch, tmp_path):
@@ -57,7 +52,6 @@ def test_get_collection_path_auto_detect_macos(monkeypatch):
 
     with patch("main.Path.home", return_value=mock_home):
         # Mock exists to return True only for expected path
-        original_exists = Path.exists
 
         def mock_exists(self):
             if self == expected_path:
