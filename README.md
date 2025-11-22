@@ -177,7 +177,7 @@ claude-code-example/
 │   ├── project-plan.md    # Current development plan
 │   └── dev-logs/          # Archived project plans
 ├── .claude/               # Claude Code configuration
-│   ├── hooks/             # Automated checks (run-qa.sh: runs poe qa after Edit/Write)
+│   ├── hooks/             # Automated checks (run-qa.sh: runs task qa after Edit/Write)
 │   ├── commands/          # Slash commands
 │   └── settings.json      # Hook configuration
 ├── pyproject.toml        # Project configuration
