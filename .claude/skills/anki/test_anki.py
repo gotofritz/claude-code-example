@@ -245,7 +245,14 @@ def test_add_cards_from_json(tmp_path):
     mock_deck = {"id": 1}
     mock_col.decks.by_name.return_value = mock_deck
 
-    mock_model = {"id": 1, "name": "Basic"}
+    mock_model = {
+        "id": 1,
+        "name": "Basic",
+        "flds": [
+            {"name": "Front"},
+            {"name": "Back"},
+        ],
+    }
     mock_col.models.by_name.return_value = mock_model
 
     mock_note = MagicMock()
@@ -282,7 +289,13 @@ def test_add_cards_from_csv(tmp_path):
     mock_col = MagicMock()
     mock_deck = {"id": 1}
     mock_col.decks.by_name.return_value = mock_deck
-    mock_model = {"id": 1}
+    mock_model = {
+        "id": 1,
+        "flds": [
+            {"name": "Front"},
+            {"name": "Back"},
+        ],
+    }
     mock_col.models.by_name.return_value = mock_model
     mock_note = MagicMock()
     mock_col.new_note.return_value = mock_note
@@ -308,7 +321,13 @@ def test_add_cards_single_via_args():
     mock_col = MagicMock()
     mock_deck = {"id": 1}
     mock_col.decks.by_name.return_value = mock_deck
-    mock_model = {"id": 1}
+    mock_model = {
+        "id": 1,
+        "flds": [
+            {"name": "Front"},
+            {"name": "Back"},
+        ],
+    }
     mock_col.models.by_name.return_value = mock_model
     mock_note = MagicMock()
     mock_col.new_note.return_value = mock_note
@@ -569,6 +588,234 @@ def test_describe_deck_note_types_empty_deck():
         describe_deck_note_types.callback(deck="Empty Deck", collection=None)
 
     mock_col.close.assert_called_once()
+
+
+def test_add_cards_cloze_explicit_fields(tmp_path):
+    """Test adding Cloze cards with explicit fields format."""
+    # Create test JSON with explicit fields
+    test_data = [
+        {
+            "fields": {
+                "Text": "{{c1::Berlin}} is the capital of Germany",
+                "Extra": "Geography",
+            },
+            "tags": ["german", "geography"],
+        },
+    ]
+
+    json_file = tmp_path / "cloze_cards.json"
+    json_file.write_text(json.dumps(test_data), encoding="utf-8")
+
+    # Mock collection with Cloze note type
+    mock_col = MagicMock()
+    mock_deck = {"id": 1}
+    mock_col.decks.by_name.return_value = mock_deck
+
+    mock_model = {
+        "id": 2,
+        "name": "Cloze",
+        "flds": [
+            {"name": "Text"},
+            {"name": "Extra"},
+        ],
+    }
+    mock_col.models.by_name.return_value = mock_model
+
+    mock_note = MagicMock()
+    mock_note.__setitem__ = MagicMock()
+    mock_col.new_note.return_value = mock_note
+
+    with patch("main.get_collection", return_value=mock_col):
+        add_cards.callback(
+            deck="German",
+            note_type="Cloze",
+            input_file=str(json_file),
+            front=None,
+            back=None,
+            tags=None,
+            collection=None,
+        )
+
+    # Verify note fields were set correctly
+    mock_note.__setitem__.assert_any_call("Text", "{{c1::Berlin}} is the capital of Germany")
+    mock_note.__setitem__.assert_any_call("Extra", "Geography")
+    mock_col.add_note.assert_called_once()
+    mock_col.save.assert_called_once()
+
+
+def test_add_cards_custom_note_type_flexible(tmp_path):
+    """Test adding cards with custom note type using flexible field matching."""
+    # Create test JSON with lowercase field names (case-insensitive matching)
+    test_data = [
+        {
+            "prompt1": "_____ ist dort.",
+            "prompt2": "D- Flughafen",
+            "answer": "Der Flughafen ist dort.",
+            "tags": ["fsi", "drill"],
+        },
+    ]
+
+    json_file = tmp_path / "fsi_cards.json"
+    json_file.write_text(json.dumps(test_data), encoding="utf-8")
+
+    # Mock collection with custom FSI note type
+    mock_col = MagicMock()
+    mock_deck = {"id": 1}
+    mock_col.decks.by_name.return_value = mock_deck
+
+    mock_model = {
+        "id": 3,
+        "name": "FSI German Drills",
+        "flds": [
+            {"name": "Prompt1"},
+            {"name": "Prompt2"},
+            {"name": "Answer"},
+        ],
+    }
+    mock_col.models.by_name.return_value = mock_model
+
+    mock_note = MagicMock()
+    mock_note.__setitem__ = MagicMock()
+    mock_col.new_note.return_value = mock_note
+
+    with patch("main.get_collection", return_value=mock_col):
+        add_cards.callback(
+            deck="DEU FSI",
+            note_type="FSI German Drills",
+            input_file=str(json_file),
+            front=None,
+            back=None,
+            tags=None,
+            collection=None,
+        )
+
+    # Verify case-insensitive field mapping worked
+    mock_note.__setitem__.assert_any_call("Prompt1", "_____ ist dort.")
+    mock_note.__setitem__.assert_any_call("Prompt2", "D- Flughafen")
+    mock_note.__setitem__.assert_any_call("Answer", "Der Flughafen ist dort.")
+    mock_col.add_note.assert_called_once()
+
+
+def test_add_cards_csv_flexible_columns(tmp_path):
+    """Test adding cards from CSV with flexible column names."""
+    # Create CSV with custom columns
+    csv_file = tmp_path / "custom_cards.csv"
+    csv_file.write_text(
+        'Text,Extra,Tags\n"{{c1::Tokyo}} is the capital","Asian capitals","geography"\n',
+        encoding="utf-8",
+    )
+
+    # Mock collection with Cloze note type
+    mock_col = MagicMock()
+    mock_deck = {"id": 1}
+    mock_col.decks.by_name.return_value = mock_deck
+
+    mock_model = {
+        "id": 2,
+        "name": "Cloze",
+        "flds": [
+            {"name": "Text"},
+            {"name": "Extra"},
+        ],
+    }
+    mock_col.models.by_name.return_value = mock_model
+
+    mock_note = MagicMock()
+    mock_note.__setitem__ = MagicMock()
+    mock_col.new_note.return_value = mock_note
+
+    with patch("main.get_collection", return_value=mock_col):
+        add_cards.callback(
+            deck="Geography",
+            note_type="Cloze",
+            input_file=str(csv_file),
+            front=None,
+            back=None,
+            tags=None,
+            collection=None,
+        )
+
+    # Verify fields were mapped correctly
+    mock_note.__setitem__.assert_any_call("Text", "{{c1::Tokyo}} is the capital")
+    mock_note.__setitem__.assert_any_call("Extra", "Asian capitals")
+    mock_col.add_note.assert_called_once()
+
+
+def test_add_cards_invalid_field_name():
+    """Test error when providing invalid field name in explicit fields format."""
+    mock_col = MagicMock()
+    mock_deck = {"id": 1}
+    mock_col.decks.by_name.return_value = mock_deck
+
+    mock_model = {
+        "id": 2,
+        "name": "Cloze",
+        "flds": [
+            {"name": "Text"},
+            {"name": "Extra"},
+        ],
+    }
+    mock_col.models.by_name.return_value = mock_model
+
+    # Card data with invalid field name
+    from main import map_input_to_note_fields
+
+    card_data = {
+        "fields": {
+            "InvalidField": "Some text",
+            "Extra": "Extra info",
+        },
+        "tags": [],
+    }
+
+    with pytest.raises(click.ClickException, match="Field 'InvalidField' not found"):
+        map_input_to_note_fields(card_data=card_data, model=mock_model)
+
+
+def test_add_cards_front_back_with_wrong_note_type():
+    """Test error when using front/back with non-Basic note type."""
+    mock_model = {
+        "id": 2,
+        "name": "Cloze",
+        "flds": [
+            {"name": "Text"},
+            {"name": "Extra"},
+        ],
+    }
+
+    from main import map_input_to_note_fields
+
+    card_data = {
+        "front": "Question",
+        "back": "Answer",
+        "tags": [],
+    }
+
+    with pytest.raises(click.ClickException, match="Note type does not have Front/Back fields"):
+        map_input_to_note_fields(card_data=card_data, model=mock_model)
+
+
+def test_add_cards_no_matching_fields():
+    """Test error when no fields can be mapped."""
+    mock_model = {
+        "id": 2,
+        "name": "Custom",
+        "flds": [
+            {"name": "Field1"},
+            {"name": "Field2"},
+        ],
+    }
+
+    from main import map_input_to_note_fields
+
+    card_data = {
+        "wrongfield": "value",
+        "anotherfield": "value",
+        "tags": [],
+    }
+
+    with pytest.raises(click.ClickException, match="Could not map any input fields"):
+        map_input_to_note_fields(card_data=card_data, model=mock_model)
 
 
 if __name__ == "__main__":

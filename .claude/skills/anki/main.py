@@ -87,6 +87,82 @@ def get_collection(*, collection_path: Path | None = None) -> Collection:
         raise click.ClickException(f"Failed to open collection: {e}")
 
 
+def map_input_to_note_fields(*, card_data: dict, model: dict) -> dict[str, str]:
+    """Map input card data to note type fields with flexible matching.
+
+    Supports multiple input formats:
+    - Explicit fields: {"fields": {"Text": "...", "Extra": "..."}}
+    - Legacy front/back: {"front": "...", "back": "..."} → Front/Back
+    - Flexible keys: case-insensitive matching to note type fields
+
+    Args:
+        card_data: Input card data dictionary
+        model: Anki note type model dictionary
+
+    Returns:
+        Dictionary mapping field names to values
+
+    Raises:
+        click.ClickException: If required fields are missing or cannot be mapped
+    """
+    # Get expected field names from model
+    model_fields = [field["name"] for field in model["flds"]]
+    field_mapping = {}
+
+    # Case 1: Explicit fields object
+    if "fields" in card_data:
+        fields_data = card_data["fields"]
+        if not isinstance(fields_data, dict):
+            raise click.ClickException("'fields' must be a dictionary")
+
+        # Direct mapping (case-sensitive)
+        for field_name, field_value in fields_data.items():
+            if field_name not in model_fields:
+                raise click.ClickException(
+                    f"Field '{field_name}' not found in note type.\n"
+                    f"Expected fields: {', '.join(model_fields)}"
+                )
+            field_mapping[field_name] = str(field_value)
+
+        return field_mapping
+
+    # Case 2: Legacy front/back format (for backward compatibility)
+    if "front" in card_data and "back" in card_data:
+        # Map to Front/Back fields (standard Basic note type)
+        if "Front" not in model_fields or "Back" not in model_fields:
+            raise click.ClickException(
+                f"Note type does not have Front/Back fields.\n"
+                f"Expected fields: {', '.join(model_fields)}\n"
+                f"Use explicit 'fields' format: {{\"fields\": {{\"{model_fields[0]}\": \"...\"}}}}"
+            )
+        return {
+            "Front": str(card_data["front"]),
+            "Back": str(card_data["back"]),
+        }
+
+    # Case 3: Flexible case-insensitive matching
+    # Create lowercase mapping of input keys
+    input_keys_lower = {k.lower(): k for k in card_data.keys() if k != "tags"}
+
+    # Try to match each model field (case-insensitive)
+    for field_name in model_fields:
+        field_lower = field_name.lower()
+        if field_lower in input_keys_lower:
+            original_key = input_keys_lower[field_lower]
+            field_mapping[field_name] = str(card_data[original_key])
+
+    # Validate that we have at least some fields mapped
+    if not field_mapping:
+        raise click.ClickException(
+            f"Could not map any input fields to note type fields.\n"
+            f"Expected fields: {', '.join(model_fields)}\n"
+            f"Provided keys: {', '.join([k for k in card_data.keys() if k != 'tags'])}\n"
+            f"Use explicit 'fields' format or provide fields with matching names."
+        )
+
+    return field_mapping
+
+
 def format_card_text(*, note: dict, deck_name: str) -> str:
     """Format a single card as text.
 
@@ -439,39 +515,57 @@ def add_cards(
 
                 for item in data:
                     if not isinstance(item, dict):
-                        raise click.ClickException("Each card must be an object with 'front' and 'back' fields")
-                    if "front" not in item or "back" not in item:
-                        raise click.ClickException("Each card must have 'front' and 'back' fields")
+                        raise click.ClickException("Each card must be an object")
 
+                    # Extract tags (common for all formats)
                     card_tags = item.get("tags", [])
                     if isinstance(card_tags, str):
                         card_tags = [t.strip() for t in card_tags.split(",")]
 
-                    cards_to_add.append({
-                        "front": item["front"],
-                        "back": item["back"],
-                        "tags": card_tags,
-                    })
+                    # Support multiple input formats:
+                    # 1. Explicit fields: {"fields": {"Text": "...", "Extra": "..."}, "tags": [...]}
+                    # 2. Legacy front/back: {"front": "...", "back": "...", "tags": [...]}
+                    # 3. Flexible keys: {"text": "...", "extra": "...", "tags": [...]}
+
+                    if "fields" in item:
+                        # Explicit fields format
+                        cards_to_add.append({
+                            "fields": item["fields"],
+                            "tags": card_tags,
+                        })
+                    elif "front" in item and "back" in item:
+                        # Legacy front/back format (backward compatible)
+                        cards_to_add.append({
+                            "front": item["front"],
+                            "back": item["back"],
+                            "tags": card_tags,
+                        })
+                    else:
+                        # Flexible format - pass all fields through for case-insensitive matching
+                        card_dict = {k: v for k, v in item.items() if k != "tags"}
+                        card_dict["tags"] = card_tags
+                        cards_to_add.append(card_dict)
 
             elif input_path.suffix.lower() == ".csv":
-                # CSV format
+                # CSV format with flexible column mapping
                 import csv
 
                 with input_path.open("r", encoding="utf-8") as f:
                     reader = csv.DictReader(f)
                     for row in reader:
-                        if "Front" not in row or "Back" not in row:
-                            raise click.ClickException("CSV must have 'Front' and 'Back' columns")
-
+                        # Extract tags if present
                         card_tags = []
                         if "Tags" in row and row["Tags"]:
                             card_tags = [t.strip() for t in row["Tags"].split(",")]
 
-                        cards_to_add.append({
-                            "front": row["Front"],
-                            "back": row["Back"],
-                            "tags": card_tags,
-                        })
+                        # Support flexible CSV formats:
+                        # 1. Standard Front/Back columns (legacy)
+                        # 2. Any columns matching note type field names (case-insensitive)
+
+                        # Pass all non-Tags columns through for flexible matching
+                        card_dict = {k: v for k, v in row.items() if k != "Tags" and v}  # Skip empty values
+                        card_dict["tags"] = card_tags
+                        cards_to_add.append(card_dict)
             else:
                 raise click.ClickException("Input file must be .json or .csv")
 
@@ -508,9 +602,12 @@ def add_cards(
             # Create new note
             note = col.new_note(model)
 
+            # Map input fields to note type fields
+            field_mapping = map_input_to_note_fields(card_data=card_data, model=model)
+
             # Set fields
-            note["Front"] = card_data["front"]
-            note["Back"] = card_data["back"]
+            for field_name, field_value in field_mapping.items():
+                note[field_name] = field_value
 
             # Set tags
             if card_data["tags"]:
