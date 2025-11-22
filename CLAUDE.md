@@ -7,7 +7,7 @@
 - Every important file has a docstring at the top explaining its purpose
 - Type hints on all function signatures. Use native types when possible, i.e. `list` and not `List`
 - Use pydantic for data models
-- All imports root-relative
+- All imports root-relative and at the top of the file
 - All commands should be run from the project root
 - At the start of a session run source .venv/bin/activate
 - Organise work in small, atomic commits
