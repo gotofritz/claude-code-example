@@ -322,53 +322,65 @@ From investigation of DEU FSI German Basic Course Drills deck:
 
 **Open Questions:**
 
-1. **What exactly is the FSI deck's note type name?**
+1. **What exactly is the FSI deck's note type name?** ⚠️ User Action Required
 
-   - **Status**: Partially resolved - cards use 3 fields (Prompt1, Prompt2, Answer)
-   - **Need**: Run Step 1 (list-note-types) to get exact note type name
-   - **Impact**: Medium - need name for documentation and examples
+   - **Status**: Can be discovered using built commands
+   - **Resolution**: User runs `skill: anki list-note-types` and `skill: anki describe-deck-note-types --deck "DEU FSI German Basic Course Drills"`
+   - **Impact**: Low - framework supports any note type name
+   - **Example provided**: Documentation uses "FSI German Drills" as placeholder
 
-2. **Does the FSI note type have any custom JavaScript/CSS?**
+2. **Does the FSI note type have any custom JavaScript/CSS?** ℹ️ Low Priority
 
-   - **Risk**: May affect card display or behavior
-   - **Mitigation**: Inspect note type templates after Step 1
-   - **Impact**: Low - write operations don't touch templates
+   - **Status**: Unknown until user inspects their collection
+   - **Resolution**: User can inspect note type templates after discovery
+   - **Impact**: None - write operations don't touch templates or JS/CSS
+   - **Decision**: Not a blocker for MVP
 
-3. **Should we support card type specification (for note types with multiple templates)?**
+3. **Should we support card type specification (for note types with multiple templates)?** ✅ Resolved
 
-   - **Example**: Basic has 1 template, but custom types can have multiple
-   - **Current**: Uses default template (first one)
    - **Decision**: Defer to future - default template sufficient for MVP
+   - **Rationale**: Uses Anki's default (first) template, matches expected behavior
+   - **Status**: Not a blocker, can be added in future if needed
 
-4. **How to handle required vs optional fields?**
-   - **Current Anki behavior**: All fields are technically optional
+4. **How to handle required vs optional fields?** ✅ Resolved
    - **Decision**: Allow empty fields, warn but don't block
    - **Rationale**: Anki itself permits empty fields
+   - **Implementation**: Field mapper allows empty values
+   - **Status**: Implemented and tested
 
-**Potential Issues:**
+**Potential Issues - All Resolved:**
 
-1. **Field Name Conflicts**
+1. **Field Name Conflicts** ✅ **RESOLVED**
 
-   - **Risk**: User provides "front" but note type expects "Front" (capitalization)
-   - **Mitigation**: Case-insensitive matching in field mapper
-   - **Severity**: Medium - confusing errors if not handled
+   - **Implementation**: Case-insensitive matching in `map_input_to_note_fields()` (.claude/skills/anki/main.py:161)
+   - **Test Coverage**: `test_add_cards_custom_note_type_flexible`
+   - **Status**: ✅ Complete
 
-2. **Cloze Syntax Errors**
+2. **Cloze Syntax Errors** ✅ **RESOLVED**
 
-   - **Risk**: Invalid cloze syntax (`{{c1::text}}`) causes card generation failure
-   - **Mitigation**: Basic validation (Step 6), clear error messages
-   - **Severity**: Low-Medium - Anki validates, but earlier validation improves UX
+   - **Implementation**: `_has_cloze_deletion()` validation function with regex (.claude/skills/anki/main.py:110)
+   - **Behavior**: Strict validation for CLI, warning-based for batch imports
+   - **Test Coverage**: `test_has_cloze_deletion`, `test_add_cards_cloze_invalid_syntax`, `test_add_cards_batch_cloze_with_invalid_skips`
+   - **Status**: ✅ Complete
 
-3. **Breaking Existing Tests**
+3. **Breaking Existing Tests** ✅ **RESOLVED**
 
-   - **Risk**: Changes to add_cards() might break 8 currently passing tests
-   - **Mitigation**: Maintain backward compatibility, update tests carefully
-   - **Severity**: Medium - important not to regress working functionality
+   - **Result**: All 38 tests passing (15 pre-existing + 23 new multi-note-type tests)
+   - **Backward Compatibility**: Verified with `test_add_cards_from_json`, `test_add_cards_from_csv`, `test_add_cards_single_via_args`
+   - **Status**: ✅ Complete
 
-4. **CSV Column Ordering Ambiguity**
-   - **Risk**: Multiple fields, user unclear on which column maps to which field
-   - **Mitigation**: Use header row for explicit field names
-   - **Severity**: Low - clear documentation resolves
+4. **CSV Column Ordering Ambiguity** ✅ **RESOLVED**
+   - **Implementation**: CSV parser uses header row for explicit field names (.claude/skills/anki/main.py:657)
+   - **Documentation**: Examples provided for all note types in SKILL.md
+   - **Test Coverage**: `test_add_cards_csv_flexible_columns`
+   - **Status**: ✅ Complete
+
+### Blocker Summary
+
+- **Blocking Issues**: 0
+- **User Action Items**: 1 (optional - discover FSI note type name from their collection)
+- **Resolved Issues**: 6/6
+- **Deferred to Future**: 1 (multiple templates support)
 
 **Risk Assessment:**
 
