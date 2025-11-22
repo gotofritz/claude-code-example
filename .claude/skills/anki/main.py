@@ -16,7 +16,7 @@ adding new cards without direct database writes.
 import csv
 import json
 import os
-import sys
+import re
 from io import StringIO
 from pathlib import Path
 
@@ -84,6 +84,40 @@ def get_collection(*, collection_path: Path | None = None) -> Collection:
         raise click.ClickException(f"Failed to open collection: {e}")
     except Exception as e:
         raise click.ClickException(f"Failed to open collection: {e}")
+
+
+def validate_cloze_syntax(*, text: str) -> None:
+    """Validate cloze deletion syntax and provide helpful warnings.
+
+    Args:
+        text: Text field content to validate
+
+    Raises:
+        click.ClickException: If cloze syntax is invalid or missing
+    """
+    # Check if text contains any cloze deletions
+    cloze_pattern = r"\{\{c\d+::[^}]+\}\}"
+    if not re.search(cloze_pattern, text):
+        raise click.ClickException(
+            f"Cloze card Text field must contain at least one cloze deletion.\n"
+            f"Expected format: {{{{c1::text}}}} or {{{{c1::text::hint}}}}\n"
+            f"Example: '{{{{c1::Berlin}}}} is the capital of Germany'\n"
+            f"Received: '{text[:100]}...'" if len(text) > 100 else f"Received: '{text}'"
+        )
+
+
+def _has_cloze_deletion(text: str) -> bool:
+    """Check if text contains valid Cloze deletion syntax.
+
+    Args:
+        text: Text to check for cloze deletions
+
+    Returns:
+        True if text contains at least one cloze deletion ({{c1::...}}, etc.)
+    """
+    # Pattern matches {{c1::text}}, {{c2::text::hint}}, etc.
+    pattern = r"\{\{c\d+::[^}]+\}\}"
+    return bool(re.search(pattern, text))
 
 
 def map_input_to_note_fields(*, card_data: dict, model: dict) -> dict[str, str]:
@@ -252,7 +286,7 @@ def format_card_markdown(*, note: dict, deck_name: str) -> str:
 
 
 @click.group()
-def cli():
+def cli() -> None:
     """Anki skill for reading and writing cards."""
     pass
 
@@ -267,7 +301,7 @@ def cli():
     help="Output format (default: text)",
 )
 @click.option("--collection", help="Path to collection.anki2 file (auto-detected if not specified)")
-def read_cards(*, query: str, output: str | None, format: str, collection: str | None):
+def read_cards(*, query: str, output: str | None, format: str, collection: str | None) -> None:
     """Query and export cards from Anki collection."""
     col = None
     try:
@@ -371,7 +405,7 @@ def read_cards(*, query: str, output: str | None, format: str, collection: str |
 
 @cli.command(name="list-decks")
 @click.option("--collection", help="Path to collection.anki2 file (auto-detected if not specified)")
-def list_decks(*, collection: str | None):
+def list_decks(*, collection: str | None) -> None:
     """List all decks in the collection."""
     col = None
     try:
@@ -397,7 +431,7 @@ def list_decks(*, collection: str | None):
 
 @cli.command(name="list-note-types")
 @click.option("--collection", help="Path to collection.anki2 file (auto-detected if not specified)")
-def list_note_types(*, collection: str | None):
+def list_note_types(*, collection: str | None) -> None:
     """List all note types in the collection with their fields."""
     col = None
     try:
@@ -423,7 +457,7 @@ def list_note_types(*, collection: str | None):
 @cli.command(name="describe-deck-note-types")
 @click.option("--deck", required=True, help="Deck name")
 @click.option("--collection", help="Path to collection.anki2 file (auto-detected if not specified)")
-def describe_deck_note_types(*, deck: str, collection: str | None):
+def describe_deck_note_types(*, deck: str, collection: str | None) -> None:
     """Show note types used in a specific deck with sample data."""
     col = None
     try:
@@ -494,7 +528,7 @@ def describe_deck_note_types(*, deck: str, collection: str | None):
 @cli.command(name="describe-deck")
 @click.option("--deck", required=True, help="Deck name")
 @click.option("--collection", help="Path to collection.anki2 file (auto-detected if not specified)")
-def describe_deck(*, deck: str, collection: str | None):
+def describe_deck(*, deck: str, collection: str | None) -> None:
     """Show detailed information about a specific deck."""
     col = None
     try:
@@ -541,6 +575,8 @@ def describe_deck(*, deck: str, collection: str | None):
 @click.option("--input", "input_file", help="CSV or JSON file with card data")
 @click.option("--front", help="Card front (for single card)")
 @click.option("--back", help="Card back (for single card)")
+@click.option("--cloze-text", help="Cloze Text field (convenience for single Cloze card)")
+@click.option("--cloze-extra", help="Cloze Extra field (optional, for single Cloze card)")
 @click.option("--tags", help="Comma-separated tags (for single card)")
 @click.option("--collection", help="Path to collection.anki2 file (auto-detected if not specified)")
 def add_cards(
@@ -550,9 +586,11 @@ def add_cards(
     input_file: str | None,
     front: str | None,
     back: str | None,
+    cloze_text: str | None,
+    cloze_extra: str | None,
     tags: str | None,
     collection: str | None,
-):
+) -> None:
     """Add new cards to Anki collection. Requires Anki to be closed."""
     col = None
     try:
@@ -635,8 +673,29 @@ def add_cards(
             else:
                 raise click.ClickException("Input file must be .json or .csv")
 
+        elif cloze_text:
+            # Single Cloze card from arguments
+            card_tags = []
+            if tags:
+                card_tags = [t.strip() for t in tags.split(",")]
+
+            # Validate Cloze deletion syntax
+            if not _has_cloze_deletion(cloze_text):
+                raise click.ClickException(
+                    "Cloze Text field must contain at least one cloze deletion.\n"
+                    "Use syntax: {{c1::text}}, {{c2::text}}, etc.\n"
+                    "Example: {{c1::Berlin}} is the capital of {{c2::Germany}}"
+                )
+
+            cards_to_add.append({
+                "fields": {
+                    "Text": cloze_text,
+                    "Extra": cloze_extra or "",
+                },
+                "tags": card_tags,
+            })
         elif front and back:
-            # Single card from arguments
+            # Single Basic card from arguments
             card_tags = []
             if tags:
                 card_tags = [t.strip() for t in tags.split(",")]
@@ -647,7 +706,12 @@ def add_cards(
                 "tags": card_tags,
             })
         else:
-            raise click.ClickException("Must provide either --input file or --front/--back arguments")
+            raise click.ClickException(
+                "Must provide either:\n"
+                "  --input file, or\n"
+                "  --front/--back arguments (for Basic cards), or\n"
+                "  --cloze-text argument (for Cloze cards)"
+            )
 
         # Get the specified note type
         model = col.models.by_name(note_type)
@@ -664,12 +728,24 @@ def add_cards(
 
         # Add cards using high-level API
         added_count = 0
+        is_cloze_model = model.get("type") == 1  # 1 = Cloze note type
+
         for card_data in cards_to_add:
             # Create new note
             note = col.new_note(model)
 
             # Map input fields to note type fields
             field_mapping = map_input_to_note_fields(card_data=card_data, model=model)
+
+            # Validate Cloze cards have proper syntax
+            if is_cloze_model and "Text" in field_mapping:
+                text_value = field_mapping["Text"]
+                if not _has_cloze_deletion(text_value):
+                    click.echo(
+                        f"Warning: Skipping Cloze card without cloze deletion syntax: "
+                        f"'{text_value[:50]}...'" if len(text_value) > 50 else f"'{text_value}'"
+                    )
+                    continue
 
             # Set fields
             for field_name, field_value in field_mapping.items():

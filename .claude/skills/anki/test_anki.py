@@ -332,6 +332,8 @@ def test_add_cards_from_json(tmp_path):
             input_file=str(json_file),
             front=None,
             back=None,
+            cloze_text=None,
+            cloze_extra=None,
             tags=None,
             collection=None,
         )
@@ -373,6 +375,8 @@ def test_add_cards_from_csv(tmp_path):
             input_file=str(csv_file),
             front=None,
             back=None,
+            cloze_text=None,
+            cloze_extra=None,
             tags=None,
             collection=None,
         )
@@ -405,6 +409,8 @@ def test_add_cards_single_via_args():
             input_file=None,
             front="Question",
             back="Answer",
+            cloze_text=None,
+            cloze_extra=None,
             tags="quick,test",
             collection=None,
         )
@@ -427,6 +433,8 @@ def test_add_cards_deck_not_found():
                 input_file=None,
                 front="Test",
                 back="Test",
+                cloze_text=None,
+                cloze_extra=None,
                 tags=None,
                 collection=None,
             )
@@ -448,6 +456,8 @@ def test_add_cards_missing_input():
                 input_file=None,
                 front=None,
                 back=None,
+                cloze_text=None,
+                cloze_extra=None,
                 tags=None,
                 collection=None,
             )
@@ -473,6 +483,8 @@ def test_add_cards_invalid_note_type():
                 input_file=None,
                 front="Test",
                 back="Test",
+                cloze_text=None,
+                cloze_extra=None,
                 tags=None,
                 collection=None,
             )
@@ -698,6 +710,8 @@ def test_add_cards_cloze_explicit_fields(tmp_path):
             input_file=str(json_file),
             front=None,
             back=None,
+            cloze_text=None,
+            cloze_extra=None,
             tags=None,
             collection=None,
         )
@@ -751,6 +765,8 @@ def test_add_cards_custom_note_type_flexible(tmp_path):
             input_file=str(json_file),
             front=None,
             back=None,
+            cloze_text=None,
+            cloze_extra=None,
             tags=None,
             collection=None,
         )
@@ -797,6 +813,8 @@ def test_add_cards_csv_flexible_columns(tmp_path):
             input_file=str(csv_file),
             front=None,
             back=None,
+            cloze_text=None,
+            cloze_extra=None,
             tags=None,
             collection=None,
         )
@@ -882,6 +900,85 @@ def test_add_cards_no_matching_fields():
 
     with pytest.raises(click.ClickException, match="Could not map any input fields"):
         map_input_to_note_fields(card_data=card_data, model=mock_model)
+
+
+def test_add_cards_cloze_via_cli_shortcut():
+    """Test adding a single Cloze card via --cloze-text shortcut."""
+    mock_col = MagicMock()
+    mock_deck = {"id": 1}
+    mock_col.decks.by_name.return_value = mock_deck
+
+    mock_model = {
+        "id": 2,
+        "name": "Cloze",
+        "type": 1,  # Cloze type
+        "flds": [
+            {"name": "Text"},
+            {"name": "Extra"},
+        ],
+    }
+    mock_col.models.by_name.return_value = mock_model
+
+    mock_note = MagicMock()
+    mock_note.__setitem__ = MagicMock()
+    mock_col.new_note.return_value = mock_note
+
+    with patch("main.get_collection", return_value=mock_col):
+        add_cards.callback(
+            deck="Quick Cloze",
+            note_type="Cloze",
+            input_file=None,
+            front=None,
+            back=None,
+            cloze_text="{{c1::Berlin}} is the capital of {{c2::Germany}}",
+            cloze_extra="Geography",
+            tags="europe,capitals",
+            collection=None,
+        )
+
+    # Verify fields were set correctly
+    mock_note.__setitem__.assert_any_call("Text", "{{c1::Berlin}} is the capital of {{c2::Germany}}")
+    mock_note.__setitem__.assert_any_call("Extra", "Geography")
+    mock_col.add_note.assert_called_once()
+    mock_col.save.assert_called_once()
+
+
+def test_add_cards_cloze_invalid_syntax():
+    """Test error when cloze-text doesn't have cloze deletion syntax."""
+    mock_col = MagicMock()
+    mock_deck = {"id": 1}
+    mock_col.decks.by_name.return_value = mock_deck
+
+    with patch("main.get_collection", return_value=mock_col):
+        with pytest.raises(click.ClickException, match="must contain at least one cloze deletion"):
+            add_cards.callback(
+                deck="Quick Cloze",
+                note_type="Cloze",
+                input_file=None,
+                front=None,
+                back=None,
+                cloze_text="Berlin is the capital of Germany",  # Missing {{c1::...}} syntax
+                cloze_extra=None,
+                tags=None,
+                collection=None,
+            )
+
+
+def test_has_cloze_deletion():
+    """Test the _has_cloze_deletion validation function."""
+    from main import _has_cloze_deletion
+
+    # Valid cloze deletions
+    assert _has_cloze_deletion("{{c1::Berlin}} is the capital")
+    assert _has_cloze_deletion("The capital is {{c2::Berlin}}")
+    assert _has_cloze_deletion("{{c1::Berlin::hint}} is a city")
+    assert _has_cloze_deletion("{{c1::A}} and {{c2::B}}")
+
+    # Invalid (no cloze deletion)
+    assert not _has_cloze_deletion("Berlin is the capital")
+    assert not _has_cloze_deletion("{{Berlin}}")  # Missing c1::
+    assert not _has_cloze_deletion("{c1::Berlin}")  # Single braces
+    assert not _has_cloze_deletion("")
 
 
 if __name__ == "__main__":
