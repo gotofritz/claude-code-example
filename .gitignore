@@ -64,3 +64,6 @@ __pycache__/
 # VS Code
 .vscode/*
 !.vscode/launch.json*
+
+settings.local.json
+.claude/ide/

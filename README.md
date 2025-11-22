@@ -173,6 +173,13 @@ claude-code-example/
 │   ├── cli/               # CLI commands
 │   └── ...                # Other modules
 ├── tests/                 # Test suite
+├── docs/                  # Documentation
+│   ├── project-plan.md    # Current development plan
+│   └── dev-logs/          # Archived project plans
+├── .claude/               # Claude Code configuration
+│   ├── hooks/             # Automated checks (run-qa.sh: runs poe qa after Edit/Write)
+│   ├── commands/          # Slash commands
+│   └── settings.json      # Hook configuration
 ├── pyproject.toml        # Project configuration
 └── README.md             # This file
 ```
