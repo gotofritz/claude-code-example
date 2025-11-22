@@ -47,7 +47,14 @@ def get_collection_path() -> Path:
     candidates = [
         home / "Library" / "Application Support" / "Anki2" / "User 1" / "collection.anki2",  # macOS
         home / ".local" / "share" / "Anki2" / "User 1" / "collection.anki2",  # Linux
-        home / ".var" / "app" / "net.ankiweb.Anki" / "data" / "Anki2" / "User 1" / "collection.anki2",  # Linux Flatpak
+        home
+        / ".var"
+        / "app"
+        / "net.ankiweb.Anki"
+        / "data"
+        / "Anki2"
+        / "User 1"
+        / "collection.anki2",  # Linux Flatpak
     ]
 
     # Windows path
@@ -59,7 +66,9 @@ def get_collection_path() -> Path:
         if candidate.exists():
             return candidate
 
-    raise click.ClickException("Could not locate Anki collection. Use --collection to specify path or set ANKI_COLLECTION_PATH.")
+    raise click.ClickException(
+        "Could not locate Anki collection. Use --collection to specify path or set ANKI_COLLECTION_PATH."
+    )
 
 
 def get_collection(*, collection_path: Path | None = None) -> Collection:
@@ -102,7 +111,9 @@ def validate_cloze_syntax(*, text: str) -> None:
             f"Cloze card Text field must contain at least one cloze deletion.\n"
             f"Expected format: {{{{c1::text}}}} or {{{{c1::text::hint}}}}\n"
             f"Example: '{{{{c1::Berlin}}}} is the capital of Germany'\n"
-            f"Received: '{text[:100]}...'" if len(text) > 100 else f"Received: '{text}'"
+            f"Received: '{text[:100]}...'"
+            if len(text) > 100
+            else f"Received: '{text}'"
         )
 
 
@@ -261,7 +272,9 @@ def format_card_markdown(*, note: dict, deck_name: str) -> str:
 
     # Try Basic note type (Front/Back)
     if "Front" in fields and "Back" in fields:
-        return f"- **{fields['Front']}** → {fields['Back']}\n  - Deck: {deck_name}\n  - Tags: {tags}"
+        return (
+            f"- **{fields['Front']}** → {fields['Back']}\n  - Deck: {deck_name}\n  - Tags: {tags}"
+        )
 
     # Try Cloze note type (Text/Extra)
     if "Text" in fields:
@@ -333,11 +346,13 @@ def read_cards(*, query: str, output: str | None, format: str, collection: str |
             for field_name in note.keys():
                 fields[field_name] = note[field_name]
 
-            cards_data.append({
-                "fields": fields,
-                "tags": note.tags,
-                "deck": deck_name,
-            })
+            cards_data.append(
+                {
+                    "fields": fields,
+                    "tags": note.tags,
+                    "deck": deck_name,
+                }
+            )
 
         # Output based on format
         if format == "json":
@@ -514,7 +529,9 @@ def describe_deck_note_types(*, deck: str, collection: str | None) -> None:
                 click.echo(f"      Sample {i}:")
                 for field_name, field_value in sample.items():
                     # Truncate long values
-                    display_value = field_value[:80] + "..." if len(field_value) > 80 else field_value
+                    display_value = (
+                        field_value[:80] + "..." if len(field_value) > 80 else field_value
+                    )
                     # Replace newlines with spaces for cleaner output
                     display_value = display_value.replace("\n", " ")
                     click.echo(f"        {field_name}: {display_value}")
@@ -600,7 +617,9 @@ def add_cards(
         # Find deck by name
         deck_obj = col.decks.by_name(deck)
         if not deck_obj:
-            raise click.ClickException(f"Deck not found: {deck}. Use list-decks to see available decks.")
+            raise click.ClickException(
+                f"Deck not found: {deck}. Use list-decks to see available decks."
+            )
 
         deck_id = deck_obj["id"]
 
@@ -635,17 +654,21 @@ def add_cards(
 
                     if "fields" in item:
                         # Explicit fields format
-                        cards_to_add.append({
-                            "fields": item["fields"],
-                            "tags": card_tags,
-                        })
+                        cards_to_add.append(
+                            {
+                                "fields": item["fields"],
+                                "tags": card_tags,
+                            }
+                        )
                     elif "front" in item and "back" in item:
                         # Legacy front/back format (backward compatible)
-                        cards_to_add.append({
-                            "front": item["front"],
-                            "back": item["back"],
-                            "tags": card_tags,
-                        })
+                        cards_to_add.append(
+                            {
+                                "front": item["front"],
+                                "back": item["back"],
+                                "tags": card_tags,
+                            }
+                        )
                     else:
                         # Flexible format - pass all fields through for case-insensitive matching
                         card_dict = {k: v for k, v in item.items() if k != "tags"}
@@ -667,7 +690,9 @@ def add_cards(
                         # 2. Any columns matching note type field names (case-insensitive)
 
                         # Pass all non-Tags columns through for flexible matching
-                        card_dict = {k: v for k, v in row.items() if k != "Tags" and v}  # Skip empty values
+                        card_dict = {
+                            k: v for k, v in row.items() if k != "Tags" and v
+                        }  # Skip empty values
                         card_dict["tags"] = card_tags
                         cards_to_add.append(card_dict)
             else:
@@ -687,24 +712,28 @@ def add_cards(
                     "Example: {{c1::Berlin}} is the capital of {{c2::Germany}}"
                 )
 
-            cards_to_add.append({
-                "fields": {
-                    "Text": cloze_text,
-                    "Extra": cloze_extra or "",
-                },
-                "tags": card_tags,
-            })
+            cards_to_add.append(
+                {
+                    "fields": {
+                        "Text": cloze_text,
+                        "Extra": cloze_extra or "",
+                    },
+                    "tags": card_tags,
+                }
+            )
         elif front and back:
             # Single Basic card from arguments
             card_tags = []
             if tags:
                 card_tags = [t.strip() for t in tags.split(",")]
 
-            cards_to_add.append({
-                "front": front,
-                "back": back,
-                "tags": card_tags,
-            })
+            cards_to_add.append(
+                {
+                    "front": front,
+                    "back": back,
+                    "tags": card_tags,
+                }
+            )
         else:
             raise click.ClickException(
                 "Must provide either:\n"
@@ -743,7 +772,9 @@ def add_cards(
                 if not _has_cloze_deletion(text_value):
                     click.echo(
                         f"Warning: Skipping Cloze card without cloze deletion syntax: "
-                        f"'{text_value[:50]}...'" if len(text_value) > 50 else f"'{text_value}'"
+                        f"'{text_value[:50]}...'"
+                        if len(text_value) > 50
+                        else f"'{text_value}'"
                     )
                     continue
 
