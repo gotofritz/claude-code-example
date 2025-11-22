@@ -87,6 +87,72 @@ def test_format_card_markdown():
     assert result.startswith("- ")
 
 
+def test_format_card_text_cloze():
+    """Test text formatting for Cloze note type."""
+    note = {
+        "fields": {"Text": "{{c1::Berlin}} is the capital", "Extra": "Geography"},
+        "tags": ["german", "geography"],
+    }
+
+    result = format_card_text(note=note, deck_name="German")
+
+    assert "German" in result
+    assert "{{c1::Berlin}} is the capital" in result
+    assert "Geography" in result
+    assert "german" in result
+
+
+def test_format_card_markdown_cloze():
+    """Test markdown formatting for Cloze note type."""
+    note = {
+        "fields": {"Text": "{{c1::Tokyo}} is capital of Japan"},
+        "tags": ["geography"],
+    }
+
+    result = format_card_markdown(note=note, deck_name="Geography")
+
+    assert "**{{c1::Tokyo}} is capital of Japan**" in result
+    assert "Geography" in result
+    assert "geography" in result
+
+
+def test_format_card_text_custom_fields():
+    """Test text formatting for custom note type with multiple fields."""
+    note = {
+        "fields": {
+            "Prompt1": "_____ ist dort",
+            "Prompt2": "D- Flughafen",
+            "Answer": "Der Flughafen ist dort",
+        },
+        "tags": ["fsi", "drill"],
+    }
+
+    result = format_card_text(note=note, deck_name="DEU FSI")
+
+    assert "DEU FSI" in result
+    assert "Prompt1:" in result or "_____ ist dort" in result
+    assert "fsi" in result
+
+
+def test_format_card_markdown_custom_fields():
+    """Test markdown formatting for custom note type."""
+    note = {
+        "fields": {
+            "Field1": "Value 1",
+            "Field2": "Value 2",
+        },
+        "tags": ["custom"],
+    }
+
+    result = format_card_markdown(note=note, deck_name="Custom Deck")
+
+    assert "Field1" in result
+    assert "Value 1" in result
+    assert "Field2" in result
+    assert "Value 2" in result
+    assert "Custom Deck" in result
+
+
 def test_get_collection_nonexistent_env_path(monkeypatch):
     """Test error handling for non-existent env path."""
     monkeypatch.setenv("ANKI_COLLECTION_PATH", "/nonexistent/path.anki2")

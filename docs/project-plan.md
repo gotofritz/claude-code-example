@@ -146,16 +146,16 @@ From investigation of DEU FSI German Basic Course Drills deck:
 
 ### Step 5: Update Read Operation Formatters 🔶 Important
 
-- [ ] Make `format_card_text()` flexible
+- [x] Make `format_card_text()` flexible
   - Try Front/Back first (Basic)
   - Fall back to Text (Cloze)
   - Fall back to first N fields (custom types)
-- [ ] Make `format_card_markdown()` flexible
-- [ ] Update CSV export formatter for arbitrary fields
-- [ ] Ensure JSON export already works (it should - it outputs all fields)
-- [ ] Test with all three note types (Basic, Cloze, FSI)
+- [x] Make `format_card_markdown()` flexible
+- [x] Update CSV export formatter for arbitrary fields
+- [x] Ensure JSON export already works (it should - it outputs all fields)
+- [x] Test with all three note types (Basic, Cloze, FSI)
 
-**Status**: Not started
+**Status**: ✅ Complete
 
 **Reasoning**: Read operations currently assume Front/Back fields. When displaying Cloze or FSI cards, they show "N/A → N/A" in text format. Making formatters flexible improves UX.
 

@@ -13,9 +13,11 @@ official Anki Python API. It supports querying cards, listing decks, and
 adding new cards without direct database writes.
 """
 
+import csv
 import json
 import os
 import sys
+from io import StringIO
 from pathlib import Path
 
 try:
@@ -164,7 +166,12 @@ def map_input_to_note_fields(*, card_data: dict, model: dict) -> dict[str, str]:
 
 
 def format_card_text(*, note: dict, deck_name: str) -> str:
-    """Format a single card as text.
+    """Format a single card as text with flexible field support.
+
+    Tries multiple note type formats:
+    - Basic: Front → Back
+    - Cloze: Text
+    - Custom: First 2-3 fields
 
     Args:
         note: Note dictionary with fields
@@ -174,15 +181,42 @@ def format_card_text(*, note: dict, deck_name: str) -> str:
         Formatted text string
     """
     fields = note.get("fields", {})
-    front = fields.get("Front", "N/A")
-    back = fields.get("Back", "N/A")
     tags = ", ".join(note.get("tags", []))
 
-    return f"[{deck_name}] {front} → {back} (tags: {tags})"
+    # Try Basic note type (Front/Back)
+    if "Front" in fields and "Back" in fields:
+        return f"[{deck_name}] {fields['Front']} → {fields['Back']} (tags: {tags})"
+
+    # Try Cloze note type (Text/Extra)
+    if "Text" in fields:
+        text = fields["Text"]
+        extra = fields.get("Extra", "")
+        if extra:
+            return f"[{deck_name}] {text} ({extra}) (tags: {tags})"
+        return f"[{deck_name}] {text} (tags: {tags})"
+
+    # Custom note type - display first few fields
+    field_items = list(fields.items())
+    if not field_items:
+        return f"[{deck_name}] (empty note) (tags: {tags})"
+
+    if len(field_items) == 1:
+        field_name, field_value = field_items[0]
+        return f"[{deck_name}] {field_name}: {field_value} (tags: {tags})"
+
+    # Multiple fields - show first 2-3
+    field_strs = [f"{name}: {value}" for name, value in field_items[:3]]
+    field_display = " | ".join(field_strs)
+    return f"[{deck_name}] {field_display} (tags: {tags})"
 
 
 def format_card_markdown(*, note: dict, deck_name: str) -> str:
-    """Format a single card as markdown.
+    """Format a single card as markdown with flexible field support.
+
+    Tries multiple note type formats:
+    - Basic: Front → Back
+    - Cloze: Text (Extra)
+    - Custom: All fields listed
 
     Args:
         note: Note dictionary with fields
@@ -192,11 +226,32 @@ def format_card_markdown(*, note: dict, deck_name: str) -> str:
         Formatted markdown string
     """
     fields = note.get("fields", {})
-    front = fields.get("Front", "N/A")
-    back = fields.get("Back", "N/A")
     tags = ", ".join(note.get("tags", []))
 
-    return f"- **{front}** → {back}\n  - Deck: {deck_name}\n  - Tags: {tags}"
+    # Try Basic note type (Front/Back)
+    if "Front" in fields and "Back" in fields:
+        return f"- **{fields['Front']}** → {fields['Back']}\n  - Deck: {deck_name}\n  - Tags: {tags}"
+
+    # Try Cloze note type (Text/Extra)
+    if "Text" in fields:
+        text = fields["Text"]
+        extra = fields.get("Extra", "")
+        if extra:
+            return f"- **{text}** ({extra})\n  - Deck: {deck_name}\n  - Tags: {tags}"
+        return f"- **{text}**\n  - Deck: {deck_name}\n  - Tags: {tags}"
+
+    # Custom note type - list all fields
+    field_items = list(fields.items())
+    if not field_items:
+        return f"- (empty note)\n  - Deck: {deck_name}\n  - Tags: {tags}"
+
+    if len(field_items) == 1:
+        field_name, field_value = field_items[0]
+        return f"- **{field_name}:** {field_value}\n  - Deck: {deck_name}\n  - Tags: {tags}"
+
+    # Multiple fields - list them
+    field_lines = "\n  - ".join([f"**{name}:** {value}" for name, value in field_items])
+    return f"- Card:\n  - {field_lines}\n  - Deck: {deck_name}\n  - Tags: {tags}"
 
 
 @click.group()
@@ -263,16 +318,32 @@ def read_cards(*, query: str, output: str | None, format: str, collection: str |
                 click.echo(output_data)
 
         elif format == "csv":
-            output_lines = []
-            output_lines.append("Front,Back,Tags,Deck")
+            # Build CSV with flexible columns based on all fields present
+            # Collect all unique field names across all cards
+            all_field_names = set()
             for card in cards_data:
-                front = card["fields"].get("Front", "")
-                back = card["fields"].get("Back", "")
-                tags = ",".join(card["tags"])
-                deck = card["deck"]
-                output_lines.append(f'"{front}","{back}","{tags}","{deck}"')
+                all_field_names.update(card["fields"].keys())
 
-            output_data = "\n".join(output_lines)
+            # Sort field names for consistent ordering
+            field_names = sorted(all_field_names)
+
+            # Build CSV output
+            output_buffer = StringIO()
+            csv_writer = csv.writer(output_buffer)
+
+            # Write header
+            csv_writer.writerow(field_names + ["Tags", "Deck"])
+
+            # Write data rows
+            for card in cards_data:
+                row = []
+                for field_name in field_names:
+                    row.append(card["fields"].get(field_name, ""))
+                row.append(",".join(card["tags"]))
+                row.append(card["deck"])
+                csv_writer.writerow(row)
+
+            output_data = output_buffer.getvalue()
             if output:
                 Path(output).write_text(output_data, encoding="utf-8")
                 click.echo(f"Exported {len(cards_data)} cards to {output}")
@@ -548,8 +619,6 @@ def add_cards(
 
             elif input_path.suffix.lower() == ".csv":
                 # CSV format with flexible column mapping
-                import csv
-
                 with input_path.open("r", encoding="utf-8") as f:
                     reader = csv.DictReader(f)
                     for row in reader:
