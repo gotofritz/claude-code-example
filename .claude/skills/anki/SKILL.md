@@ -106,24 +106,82 @@ skill: anki describe-deck-note-types --deck "DEU FSI German Basic Course Drills"
 ### add-cards
 Add new cards to your Anki collection. **Requires Anki to be closed.**
 
+Supports multiple note types: Basic, Cloze, and custom note types.
+
+**Basic Examples:**
+
 ```bash
-# Add cards from CSV file
+# Add Basic cards from CSV file (default note type)
 skill: anki add-cards --input cards.csv --deck "Vocabulary"
 
-# Add cards from JSON file
+# Add Basic cards from JSON file
 skill: anki add-cards --input cards.json --deck "German"
 
-# Add a single card via arguments
+# Add a single Basic card via arguments
 skill: anki add-cards --deck "Quick" --front "Hello" --back "Hallo" --tags "german,greetings"
 ```
 
-**CSV Format:**
-```csv
-Front,Back,Tags
-"Word","Translation","tag1,tag2"
+**Cloze Card Examples:**
+
+```bash
+# Add Cloze cards from JSON
+skill: anki add-cards --input cloze.json --deck "Geography" --note-type "Cloze"
 ```
 
-**JSON Format:**
+**Cloze JSON Format:**
+```json
+[
+  {
+    "fields": {
+      "Text": "{{c1::Berlin}} is the capital of {{c2::Germany}}",
+      "Extra": "European capitals"
+    },
+    "tags": ["geography", "europe"]
+  }
+]
+```
+
+**Cloze CSV Format:**
+```csv
+Text,Extra,Tags
+"{{c1::Tokyo}} is the capital of Japan","Asian capitals","geography,asia"
+"{{c1::Paris}} is in {{c2::France}}","European cities","geography,europe"
+```
+
+**Custom Note Type Examples (e.g., FSI German Drills):**
+
+```bash
+# Add cards with custom 3-field note type
+skill: anki add-cards --input fsi.json --deck "DEU FSI" --note-type "FSI German Drills"
+```
+
+**Custom Note Type JSON Format:**
+```json
+[
+  {
+    "fields": {
+      "Prompt1": "_____ ist dort.",
+      "Prompt2": "D- Flughafen",
+      "Answer": "Der Flughafen ist dort."
+    },
+    "tags": ["fsi", "drill"]
+  }
+]
+```
+
+**Flexible Format (case-insensitive field matching):**
+```json
+[
+  {
+    "prompt1": "_____ ist dort.",
+    "prompt2": "D- Flughafen",
+    "answer": "Der Flughafen ist dort.",
+    "tags": ["fsi", "drill"]
+  }
+]
+```
+
+**Legacy Basic Format (backward compatible):**
 ```json
 [
   {
@@ -134,6 +192,58 @@ Front,Back,Tags
 ]
 ```
 
+**CSV Format (Basic):**
+```csv
+Front,Back,Tags
+"Word","Translation","tag1,tag2"
+```
+
+## Supported Note Types
+
+The skill supports any note type in your collection:
+
+### Built-in Note Types
+
+**Basic (default)**
+- Fields: Front, Back
+- Format: `{"front": "...", "back": "..."}` or `{"fields": {"Front": "...", "Back": "..."}}`
+- Use: Standard flashcards
+
+**Cloze**
+- Fields: Text, Extra
+- Format: `{"fields": {"Text": "{{c1::word}}", "Extra": "hint"}}`
+- Use: Fill-in-the-blank cards with cloze deletions
+
+### Custom Note Types
+
+Any custom note type in your collection is supported. Use discovery commands to find them:
+
+```bash
+# List all note types with their fields
+skill: anki list-note-types
+
+# See which note types are used in a specific deck
+skill: anki describe-deck-note-types --deck "Your Deck"
+```
+
+### Input Format Options
+
+**1. Explicit Fields (recommended for non-Basic types):**
+```json
+{"fields": {"Field1": "value", "Field2": "value"}, "tags": [...]}
+```
+
+**2. Legacy Front/Back (Basic only):**
+```json
+{"front": "value", "back": "value", "tags": [...]}
+```
+
+**3. Case-Insensitive Matching:**
+```json
+{"field1": "value", "field2": "value", "tags": [...]}
+```
+Field names are matched case-insensitively to note type fields.
+
 ## Usage Notes
 
 - Dependencies auto-installed via PEP 723 inline metadata (`anki>=25.9.2`)
@@ -141,6 +251,7 @@ Front,Back,Tags
 - Override with `--collection` argument or `ANKI_COLLECTION_PATH` environment variable
 - All write operations use high-level Anki API (no direct database writes)
 - Collection is properly closed after each operation
+- Default note type is "Basic" - specify `--note-type` for other types
 
 ## Error Handling
 
@@ -149,6 +260,46 @@ Front,Back,Tags
 - `Collection is locked` - Anki is currently running. Close it and try again.
 - `Deck not found` - Specified deck doesn't exist. Use `list-decks` to see available decks.
 - `Collection not found` - Cannot locate Anki collection. Specify path with `--collection`.
+- `Note type 'X' not found` - Specified note type doesn't exist. Use `list-note-types` to see available types.
+
+## Troubleshooting
+
+### Field Mapping Issues
+
+**Problem:** `Field 'X' not found in note type`
+
+**Solution:**
+- Use `list-note-types` to see exact field names (case-sensitive for explicit format)
+- Or use `describe-deck-note-types --deck "Your Deck"` to see fields with examples
+- Field names must match exactly when using explicit `fields` format
+
+**Problem:** `Could not map any input fields`
+
+**Solution:**
+- Check field names match note type fields (case-insensitive matching)
+- For custom note types, use explicit `fields` format:
+  ```json
+  {"fields": {"ExactFieldName": "value"}, "tags": [...]}
+  ```
+
+**Problem:** `Note type does not have Front/Back fields`
+
+**Solution:**
+- Using `{"front": "...", "back": "..."}` only works with Basic note type
+- For other note types, use explicit fields or case-insensitive matching:
+  ```json
+  {"fields": {"Text": "...", "Extra": "..."}, "tags": [...]}
+  ```
+
+### Cloze Card Issues
+
+**Problem:** Cloze cards not working
+
+**Solution:**
+- Ensure note type is "Cloze": `--note-type "Cloze"`
+- Use proper cloze deletion syntax: `{{c1::text}}`, `{{c2::text}}`, etc.
+- Text field must contain at least one cloze deletion
+- Example: `{"fields": {"Text": "{{c1::Berlin}} is capital", "Extra": "Geography"}}`
 
 ## Security Considerations
 
