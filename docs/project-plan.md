@@ -1,284 +1,412 @@
-# Anki Skill Implementation
+# Multi-Note-Type Support for Anki Skill
 
 ## Overview
 
-Create a Claude Code skill that enables reading cards from and writing new cards to a local Anki installation. The skill will use the official Anki Python module to safely interact with Anki collections without direct database writes.
+Extend the Anki skill to support multiple note types beyond "Basic", specifically:
+1. **Cloze** note type (Text/Extra fields) for creating fill-in-the-blank cards
+2. **FSI German Drills** custom note type (Prompt1/Prompt2/Answer fields) used by the DEU FSI German Basic Course Drills deck
+
+Currently, the skill hardcodes the "Basic" note type (Front/Back fields), limiting its usefulness for language learning workflows that benefit from Cloze deletions and drill-style cards.
 
 ## Current State
 
-**Project Setup:**
+**Existing Anki Skill (Production-Ready):**
+- **Location**: `.claude/skills/anki/`
+- **Commands**: list-decks, describe-deck, read-cards, add-cards
+- **429 lines** of production code in main.py
+- **472 lines** of test code (8/19 passing)
+- **Validated** against real collection (34MB, 16,268 cards)
 
-- Python 3.13+ with uv package manager
-- Skills use PEP 723 inline dependencies (self-contained)
-- Testing framework: pytest with faker, polyfactory, pytest-data
+**Current Limitations:**
+- Note type "Basic" hardcoded at `main.py:395`
+- Field names "Front"/"Back" hardcoded at `main.py:406-407`
+- Input format (JSON/CSV) expects only "front"/"back" keys
+- Formatters assume Front/Back structure for display
 
-**Anki Integration Research:**
-
-- Official Anki Python module available (anki>=25.9.2)
-- High-level API methods: `col.add_note()`, `col.update_note()`, `col.find_notes()`
-- Database locations: `~/Library/Application Support/Anki2/User 1/collection.anki2` (macOS)
-- Critical requirement: Anki must be closed during write operations
-- Safety: Only use high-level API, never direct SQL writes
-
-**Implementation Status (as of 2025-11-22):**
-
-✅ Steps 1-4 complete: Skill structure, documentation, read operations, write operations
-⚠️ Step 5 mostly complete: 8/19 automated tests passing (core logic tested), remaining failures are CLI framework issues
-✅ Step 6 complete: Manual testing validated all operations work correctly on macOS with real Anki collection
-
-**Recent Updates (commit 8215c1b):**
-- Expanded test coverage from 109 to 472 lines
-- Added comprehensive mocked tests for all operations (path detection, formatters, read/write operations, error handling)
-- Tests currently failing due to module mocking complexity - requires refactoring
+**Known Note Types in Collection:**
+From investigation of DEU FSI German Basic Course Drills deck:
+- **Custom Note Type**: Has 3 fields - `Prompt1`, `Prompt2`, `Answer`
+- **Structure**: Drill-style with template sentence, article hint, and complete answer
+- **Example**:
+  - Prompt1: `<u>_____</u> <u>ist</u> dort.` (template)
+  - Prompt2: `D- Flughafen` (article hint)
+  - Answer: `<u>Der Flughafen</u> <u>ist</u> dort.` (complete answer)
 
 ## Breakdown
 
-### Step 1: Create Skill Directory Structure ✅ COMPLETE
+### Step 1: Add Discovery Commands ✅ High Priority
 
-- [x] Create `.claude/skills/anki/` directory
-- [x] Create placeholder files: `SKILL.md`, `main.py`, `test_anki.py`
+- [ ] Implement `list-note-types` command
+  - List all note types in collection with field names
+  - Show type (Standard vs Cloze)
+  - Sort alphabetically for readability
+- [ ] Implement `describe-deck-note-types` command
+  - Show which note types are used in a specific deck
+  - Include field structure for each
+  - Show sample card data
+- [ ] Add tests for discovery commands
+- [ ] Update SKILL.md with new command documentation
 
-**Status:** All files created in `.claude/skills/anki/`
+**Status**: Not started
 
-**Dependencies:** None
+**Reasoning**: Need to discover what note types exist before implementing multi-type support. This allows users to see available note types and validate assumptions about FSI deck structure.
 
-**Complexity:** Low
+**Dependencies**: None - can use existing `get_collection()` helper
 
-### Step 2: Write SKILL.md Documentation ✅ COMPLETE
+**Complexity**: Low-Medium (~2-3 hours)
+- Simple Anki API usage (`col.models.all()`, `col.models.get()`)
+- Straightforward output formatting
+- Minimal error handling needed
 
-- [x] Write frontmatter with skill metadata (name, description, allowed-tools)
-- [x] Document prerequisites (Anki closed for writes, optional env vars)
-- [x] List available commands: read-cards, list-decks, describe-deck, add-cards
-- [x] Add usage examples for each command
-- [x] Document safety considerations (no direct DB writes, collection locking)
-- [x] Add output format options (JSON, CSV, Markdown, Text)
+**Acceptance Criteria:**
+- Can list all note types with their fields
+- Can show note types used in FSI deck
+- Output clearly shows field structure
+- Commands follow existing CLI pattern
 
-**Status:** Complete documentation in `.claude/skills/anki/SKILL.md` (115 lines)
+---
 
-**Reasoning:** Clear documentation is critical for users to understand capabilities and safety requirements.
+### Step 2: Add Note Type Parameter to add-cards 🔥 Critical
 
-**Dependencies:** Step 1 complete
+- [ ] Add `--note-type` CLI parameter (default: "Basic")
+- [ ] Replace hardcoded `col.models.by_name("Basic")` with dynamic lookup
+- [ ] Add validation: error if note type doesn't exist
+- [ ] List available note types in error message
+- [ ] Update help text and examples
+- [ ] Maintain backward compatibility (Basic as default)
 
-**Complexity:** Low
+**Status**: Not started
 
-### Step 3: Implement Read Operations in main.py ✅ COMPLETE
+**Reasoning**: This is the core change needed. Without dynamic note type selection, cannot create Cloze or FSI-style cards. Keeping "Basic" as default ensures existing workflows don't break.
 
-- [x] Add PEP 723 script metadata with anki dependency (main.py:1-8)
-- [x] Implement collection path detection (auto-detect macOS/Linux/Windows paths) (main.py:29-63)
-- [x] Implement `get_collection()` helper with lock checking (main.py:66-87)
-- [x] Implement `read_cards()` - query cards with Anki search syntax (main.py:132-225)
-- [x] Implement output formatters: JSON, CSV, Markdown, Text (main.py:90-124, 181-221)
-- [x] Implement `list_decks()` - list all decks with card counts (main.py:228-251)
-- [x] Implement `describe_deck()` - show deck structure and stats (main.py:254-295)
-- [x] Add Click CLI with read subcommands (main.py:126-129) - Note: Used Click instead of argparse
-- [x] Add proper error handling and resource cleanup (try/finally blocks throughout)
+**Dependencies**: None (can proceed without Step 1, but Step 1 helps users discover options)
 
-**Status:** Fully implemented with 429 lines of code. All read operations functional.
+**Complexity**: Low (~30-45 minutes)
+- One parameter addition
+- Simple string substitution
+- Clear validation logic
+- Minimal risk
 
-**Reasoning:** Read operations are lower risk and provide immediate value. Implementing these first validates the approach before adding write capabilities.
+**Code Location**: `main.py:298-304` (add parameter), `main.py:394-397` (implement)
 
-**Dependencies:** Step 2 complete
+---
 
-**Complexity:** Medium
+### Step 3: Implement Dynamic Field Mapping 🔥 Critical
 
-### Step 4: Implement Write Operations in main.py ✅ COMPLETE
+- [ ] Remove hardcoded `note["Front"]` and `note["Back"]` assignments
+- [ ] Implement flexible field mapping based on note type structure
+- [ ] Support multiple input formats:
+  - Explicit fields object: `{"fields": {"Text": "...", "Extra": "..."}}`
+  - Legacy front/back: `{"front": "...", "back": "..."}` (maps to Front/Back)
+  - Flexible keys: `{"text": "..."}` (case-insensitive match to note type fields)
+- [ ] Add validation: error if required fields missing
+- [ ] List expected fields in error message
+- [ ] Add helper function `map_input_to_note_fields()`
 
-- [x] Implement `add_cards()` using high-level `col.add_note()` API only (main.py:298-424)
-- [x] Support input via JSON/CSV files (main.py:330-378)
-- [x] Support input via command arguments for quick card creation (main.py:380-390)
-- [x] Add collection lock detection before writes (via get_collection helper)
-- [x] Add clear warnings that Anki must be closed (SKILL.md:13-15, 63)
-- [x] Validate note types and deck existence before writing (main.py:320-323, 395-397)
-- [x] Add Click subcommand for add-cards (main.py:298-304)
-- [x] Ensure proper resource cleanup in all error paths (main.py:422-424)
+**Status**: Not started
 
-**Status:** Fully implemented. Supports both file-based batch operations and single-card CLI arguments.
+**Reasoning**: Dynamic field mapping is essential for supporting multiple note types. Different note types have different field structures (Front/Back vs Text/Extra vs Prompt1/Prompt2/Answer). Must handle gracefully while maintaining backward compatibility.
 
-**Reasoning:** Write operations require more careful implementation due to data integrity concerns. Using only high-level API prevents database corruption.
+**Dependencies**: Step 2 complete (need note type selected)
 
-**Dependencies:** Step 3 complete
+**Complexity**: Medium-High (~2-3 hours)
+- Complex logic for field matching
+- Multiple input format support
+- Backward compatibility critical
+- Need comprehensive error messages
 
-**Complexity:** High
+**Code Location**: `main.py:405-407` (replace), new helper function (~30-40 lines)
 
-### Step 5: Create Tests ⚠️ IN PROGRESS - NEEDS FIXING
+---
 
-- [x] Create test fixtures with sample card data (test_anki.py:61-95)
-- [x] Test collection path detection logic (test_anki.py:23-122)
-- [x] Test output formatters (JSON, CSV, Markdown, Text) (test_anki.py:61-95, 125-174)
-- [x] Test read operations with mock collection (test_anki.py:190-252)
-- [x] Test write operations (add_cards from JSON, CSV, CLI args) (test_anki.py:254-400)
-- [x] Test error handling (locked collection, missing decks, invalid input) (test_anki.py:176-188, 357-400)
-- [x] Test list/describe deck operations (test_anki.py:402-465)
-- [~] Integration test with temporary Anki collection (skipped - manual testing in Step 6 will validate)
+### Step 4: Update Input Parsing (JSON/CSV) 🔶 Important
 
-**Status:** Comprehensive test structure created (472 lines, 19 tests), but 14/19 tests failing due to mocking strategy issues.
+- [ ] Modify JSON parser to accept `fields` object
+- [ ] Maintain backward compatibility with `front`/`back` keys
+- [ ] Update CSV parser for flexible columns
+  - Auto-detect columns from header row
+  - Map column names to note type fields (case-insensitive)
+- [ ] Add validation for CSV format with non-standard fields
+- [ ] Update example files in documentation
 
-**Test Failures (commit 8215c1b):**
-- Import inconsistencies (missing `from main import` in some tests)
-- Over-mocking causing issues (mocked `click` breaks `pytest.raises(click.ClickException)`)
-- Mock behavior doesn't match real module behavior
-- MagicMock objects not configured to work with pytest assertions
+**Status**: Not started
 
-**Remaining Work:**
+**Reasoning**: Users need to provide data for arbitrary fields. JSON can use nested `fields` object, CSV needs flexible column mapping. Both must work intuitively for different note types.
 
-- Refactor mocking strategy to avoid module-level mocks
-- Fix import statements to be consistent
-- Use real click.ClickException in tests instead of mocking click
-- Configure MagicMock objects properly for assertions
-- Rerun tests to verify all pass
-- Consider integration test (optional - manual testing may be sufficient)
+**Dependencies**: Step 3 complete (need field mapping logic)
 
-**Reasoning:** Tests ensure reliability and catch edge cases, especially important for data operations. Mocking Anki module dependencies proved more complex than anticipated.
+**Complexity**: Medium (~1-2 hours)
+- JSON changes are simple (add `fields` key support)
+- CSV is more complex (dynamic column detection)
+- Need clear examples for each note type
 
-**Dependencies:** Steps 3-4 complete
+**Code Location**: `main.py:330-378` (JSON/CSV parsing)
 
-**Complexity:** Medium-High (mocking complexity higher than expected)
+---
 
-### Step 6: Manual Testing and Validation ✅ COMPLETE
+### Step 5: Update Read Operation Formatters 🔶 Important
 
-- [x] Test read operations against real Anki collection
-- [x] Verify output formats are correct and useful
-- [x] Test add-cards with Anki closed (safe scenario)
-- [x] Verify Anki can open collection after writes
-- [~] Test error messages when Anki is running (not tested - Anki was closed for safety)
-- [x] Validate on macOS (primary platform)
-- [x] Document any platform-specific issues
+- [ ] Make `format_card_text()` flexible
+  - Try Front/Back first (Basic)
+  - Fall back to Text (Cloze)
+  - Fall back to first N fields (custom types)
+- [ ] Make `format_card_markdown()` flexible
+- [ ] Update CSV export formatter for arbitrary fields
+- [ ] Ensure JSON export already works (it should - it outputs all fields)
+- [ ] Test with all three note types (Basic, Cloze, FSI)
 
-**Status:** All manual testing completed successfully on macOS against production Anki collection (34MB, 9 decks, 16,268 cards).
+**Status**: Not started
 
-**Test Results:**
+**Reasoning**: Read operations currently assume Front/Back fields. When displaying Cloze or FSI cards, they show "N/A → N/A" in text format. Making formatters flexible improves UX.
 
-**Read Operations (All Passing):**
-- `list-decks`: Successfully listed 9 decks with accurate card counts
-- `describe-deck --deck "MISC"`: Showed detailed stats (72 cards, tags: deu, misc.en, etc., status breakdown)
-- `read-cards --query "deck:MISC" --format text`: Displayed cards in readable format
-- `read-cards --query "tag:misc.en" --format json`: Complete JSON output with all fields (tested custom note types)
-- `read-cards --query "tag:misc.en" --format markdown`: Nicely formatted markdown output
-- Query filtering: Works correctly (e.g., `deck:MISC`, `tag:misc.en`)
-- Empty results: Handled gracefully with clear message
+**Dependencies**: None (can work independently), but Step 1 helps validate changes
 
-**Write Operations (All Passing):**
-- Single card via CLI: `add-cards --deck "MISC" --front "Claude Code Test" --back "..." --tags "test,claude-code"`
-  - ✅ Card created successfully
-  - ✅ Verified with `read-cards --query "tag:claude-code"`
-- Batch import from JSON: Added 2 cards from test_cards.json
-  - ✅ Both cards created with correct fields and tags
-  - ✅ Verified with `read-cards --query "tag:batch-import"`
+**Complexity**: Low-Medium (~1 hour)
+- Simple conditional logic
+- Mostly cosmetic improvements
+- Low risk (doesn't affect data integrity)
 
-**Post-Write Verification:**
-- ✅ Anki opened without errors after writes
-- ✅ All 3 test cards visible in MISC deck
-- ✅ No collection corruption detected
-- ✅ Collection functions normally
+**Code Location**: `main.py:101-102, 119-120, 193-194`
 
-**Issues Found:**
-1. **Deprecation Warning**: `save() is deprecated: saving is automatic`
-   - Source: Anki library itself (anki>=25.9.2)
-   - Impact: None (cosmetic warning only)
-   - Action: Could be suppressed or removed in future version
-2. **Custom Note Types**: Cards with non-standard fields show "N/A → N/A" in text format
-   - Impact: Minor UX issue, JSON format shows all fields correctly
-   - Workaround: Use JSON or markdown format for custom note types
+---
 
-**Platform Notes (macOS):**
-- Collection path auto-detection works: `~/Library/Application Support/Anki2/User 1/collection.anki2`
-- PEP 723 dependencies work correctly with `uv run`
-- All commands execute without platform-specific issues
+### Step 6: Add Cloze-Specific Features 🔷 Nice to Have
 
-**Reasoning:** Real-world testing validated the skill works reliably with actual Anki installations. Ready for production use.
+- [ ] Add basic Cloze deletion syntax validation
+  - Warn if Text field missing `{{c1::...}}` syntax
+  - Suggest correct format in error message
+- [ ] Add `--cloze-text` and `--cloze-extra` shortcuts for CLI
+  - Convenience parameters for single Cloze card creation
+  - Maps to Text/Extra fields automatically
+- [ ] Add Cloze examples to documentation
+  - JSON format with cloze syntax
+  - Multiple cloze deletions example
+  - Hints in cloze deletions
 
-**Dependencies:** Steps 3-4 complete
+**Status**: Not started
 
-**Complexity:** Low
+**Reasoning**: Cloze cards have special syntax requirements. Basic validation and convenience features improve user experience and reduce errors. However, Anki itself validates cloze syntax, so this is nice-to-have rather than critical.
+
+**Dependencies**: Steps 2-3 complete (need note type support)
+
+**Complexity**: Low (~30-45 minutes)
+- Simple regex validation
+- Additional CLI parameters
+- Documentation examples
+
+**Code Location**: New validation function, `main.py:298-313` (add parameters)
+
+---
+
+### Step 7: Comprehensive Testing 🔥 Critical
+
+- [ ] Add tests for Cloze card creation
+- [ ] Add tests for FSI German-style card creation (3-field custom type)
+- [ ] Add tests for discovery commands
+- [ ] Add tests for field mapping logic
+- [ ] Add tests for flexible formatters
+- [ ] Add tests for error cases (missing fields, invalid note type)
+- [ ] Update existing tests to use parameterized note types
+- [ ] Test backward compatibility (Basic note type still works)
+
+**Status**: Not started
+
+**Reasoning**: Multi-note-type support adds significant complexity. Comprehensive tests ensure reliability and prevent regressions. Current test coverage is 8/19 passing; need to improve and extend.
+
+**Dependencies**: Steps 2-5 complete (need implemented features to test)
+
+**Complexity**: Medium (~2-3 hours)
+- ~200-300 new test lines estimated
+- Need mock note type structures
+- Field mapping tests most critical
+- Existing test infrastructure helps
+
+**Code Location**: `.claude/skills/anki/test_anki.py`
+
+---
+
+### Step 8: Documentation Updates 📝 Important
+
+- [ ] Add Cloze note type examples to SKILL.md
+  - JSON format with cloze syntax
+  - CSV format for batch Cloze import
+  - CLI example for single Cloze card
+- [ ] Add FSI German Drills examples
+  - 3-field structure (Prompt1/Prompt2/Answer)
+  - Batch import format
+- [ ] Document `--note-type` parameter
+- [ ] Document discovery commands (list-note-types, describe-deck-note-types)
+- [ ] Add "Supported Note Types" section
+  - Basic, Cloze, Custom (any arbitrary fields)
+- [ ] Add troubleshooting section for field mapping issues
+- [ ] Update README.md if needed
+
+**Status**: Not started
+
+**Reasoning**: Clear documentation is critical for usability. Users need examples for each note type to understand input format requirements. Troubleshooting section helps resolve common issues.
+
+**Dependencies**: Steps 1-6 complete (document implemented features)
+
+**Complexity**: Low (~30-45 minutes)
+- Mostly writing examples
+- Can reuse manual testing examples
+- Important for user adoption
+
+**Code Location**: `.claude/skills/anki/SKILL.md`, possibly `README.md`
+
+---
 
 ## Integration
 
 **Impact on Existing Code:**
+- **main.py**: ~150-200 new lines, ~50-80 modified lines
+- **SKILL.md**: ~100-150 new documentation lines
+- **test_anki.py**: ~200-300 new test lines
+- **No breaking changes**: Basic note type remains default, existing workflows unaffected
 
-- No changes to existing skills or project structure
-- New skill is self-contained in `.claude/skills/anki/`
-- Dependencies isolated via PEP 723 inline metadata
+**Affected Functions:**
+- `add_cards()`: Add parameter, remove hardcoding
+- `format_card_text()`, `format_card_markdown()`: Make flexible
+- New: `list_note_types()`, `describe_deck_note_types()`, `map_input_to_note_fields()`
 
-**Configuration:**
+**Backward Compatibility:**
+- `--note-type` defaults to "Basic"
+- Legacy `front`/`back` keys still work
+- Existing JSON/CSV files continue to work
+- No changes to read operations API
 
-- Optional environment variable: `ANKI_COLLECTION_PATH`
-- Skill registered automatically via .claude/skills/ directory structure
+**Data Safety:**
+- Read operations unaffected (no data modification)
+- Write operations use same high-level Anki API
+- Field mapping errors caught before writes
+- No direct SQL (maintains safety guarantee)
 
-**Documentation Updates:**
-
-- Could update README.md to mention new Anki skill (optional)
+---
 
 ## Blockers
 
-**Potential Issues:**
-
-1. **Anki Module Compatibility**
-
-   - Risk: Anki module might have breaking changes or compatibility issues
-   - Mitigation: Pin specific version (anki>=25.9.2), test thoroughly
-
-2. **Collection Locking**
-
-   - Risk: Cannot detect if Anki is running on all platforms
-   - Mitigation: Catch database lock errors, provide clear error messages
-
-3. **Note Type Complexity**
-
-   - Risk: Anki has complex note types (Basic, Cloze, etc.) with different field structures
-   - Mitigation: Start with Basic note type, document supported types clearly
-
-4. **Sync Conflicts**
-
-   - Risk: Direct writes might cause AnkiWeb sync issues
-   - Mitigation: Warn users in documentation, suggest backup before first use
-
-5. **Platform Differences**
-   - Risk: Collection paths differ across OS, especially with Flatpak on Linux
-   - Mitigation: Implement path detection for all platforms, allow custom path via argument
-
 **Open Questions:**
 
-- Should we support all Anki note types or start with Basic?
-  - Recommendation: Start with Basic, add others based on user feedback
-- Should we implement batch operations for adding multiple cards?
-  - Recommendation: Yes, accept CSV/JSON files with multiple cards (IMPLEMENTED)
-- Should we add card editing/deletion capabilities?
-  - Recommendation: Not in initial version, focus on read + create first
+1. **What exactly is the FSI deck's note type name?**
+   - **Status**: Partially resolved - cards use 3 fields (Prompt1, Prompt2, Answer)
+   - **Need**: Run Step 1 (list-note-types) to get exact note type name
+   - **Impact**: Medium - need name for documentation and examples
 
-## Project Status: COMPLETE ✅
+2. **Does the FSI note type have any custom JavaScript/CSS?**
+   - **Risk**: May affect card display or behavior
+   - **Mitigation**: Inspect note type templates after Step 1
+   - **Impact**: Low - write operations don't touch templates
 
-**All core objectives achieved:**
-- ✅ Skill structure and documentation (Steps 1-2)
-- ✅ Read operations fully functional (Step 3)
-- ✅ Write operations fully functional (Step 4)
-- ✅ Core logic tested with 8/19 automated tests passing (Step 5)
-- ✅ Manual testing validates all operations work correctly (Step 6)
+3. **Should we support card type specification (for note types with multiple templates)?**
+   - **Example**: Basic has 1 template, but custom types can have multiple
+   - **Current**: Uses default template (first one)
+   - **Decision**: Defer to future - default template sufficient for MVP
 
-**Ready for production use with:**
-- Read operations: list-decks, describe-deck, read-cards (JSON/CSV/Markdown/Text)
-- Write operations: add-cards (single via CLI, batch via JSON/CSV)
-- macOS support fully validated
-- Safe high-level API usage (no direct SQL)
+4. **How to handle required vs optional fields?**
+   - **Current Anki behavior**: All fields are technically optional
+   - **Decision**: Allow empty fields, warn but don't block
+   - **Rationale**: Anki itself permits empty fields
 
-## Optional Future Enhancements
+**Potential Issues:**
 
-**Priority: Low (Nice to Have)**
+1. **Field Name Conflicts**
+   - **Risk**: User provides "front" but note type expects "Front" (capitalization)
+   - **Mitigation**: Case-insensitive matching in field mapper
+   - **Severity**: Medium - confusing errors if not handled
 
-1. **Fix Remaining Automated Tests** (~1-2 hours)
-   - Refactor 11 failing tests to use CliRunner
-   - Or separate business logic from CLI decorators
-   - Currently: 8/19 passing (core logic covered)
+2. **Cloze Syntax Errors**
+   - **Risk**: Invalid cloze syntax (`{{c1::text}}`) causes card generation failure
+   - **Mitigation**: Basic validation (Step 6), clear error messages
+   - **Severity**: Low-Medium - Anki validates, but earlier validation improves UX
 
-2. **Remove Deprecation Warning** (~15 minutes)
-   - Remove `col.save()` call (saving is now automatic in Anki)
-   - Or suppress warning with proper exception handling
+3. **Breaking Existing Tests**
+   - **Risk**: Changes to add_cards() might break 8 currently passing tests
+   - **Mitigation**: Maintain backward compatibility, update tests carefully
+   - **Severity**: Medium - important not to regress working functionality
 
-3. **Improve Text Format for Custom Note Types** (~30 minutes)
-   - Detect first non-empty field as "front"
-   - Better handling of cards with non-standard fields
+4. **CSV Column Ordering Ambiguity**
+   - **Risk**: Multiple fields, user unclear on which column maps to which field
+   - **Mitigation**: Use header row for explicit field names
+   - **Severity**: Low - clear documentation resolves
 
-4. **Additional Features** (Future consideration)
-   - Card editing capabilities
-   - Card deletion
-   - Support for more note types (Cloze, etc.)
-   - Linux/Windows testing and validation
+**Risk Assessment:**
+
+| Risk | Probability | Impact | Mitigation |
+|------|-------------|---------|------------|
+| Existing workflows break | Low | High | Default to "Basic", comprehensive tests |
+| Field mapping bugs | Medium | Medium | Thorough testing, clear errors |
+| Performance degradation | Low | Low | Minimal - same API usage |
+| User confusion | Medium | Low | Good documentation, examples |
+| Cloze syntax issues | Low | Low | Validation, error messages |
+
+---
+
+## Success Criteria
+
+**Must Have (MVP):**
+- ✅ Can create Cloze cards with Text/Extra fields
+- ✅ Can create FSI-style cards with Prompt1/Prompt2/Answer fields
+- ✅ Existing Basic card creation still works (backward compatibility)
+- ✅ Clear error messages when note type or fields invalid
+- ✅ Comprehensive tests for all three note types
+
+**Should Have:**
+- ✅ Discovery commands to explore note types
+- ✅ Flexible formatters show non-Basic cards correctly
+- ✅ Documentation with examples for each note type
+- ✅ CSV/JSON support for all note types
+
+**Nice to Have:**
+- Cloze-specific validation
+- Auto-detection of note type from deck
+- Field mapping configuration file
+- Dry-run mode for previewing cards
+
+---
+
+## Timeline Estimate
+
+**Phase 1: Discovery** (~2-3 hours)
+- Step 1: Discovery commands
+
+**Phase 2: Core Functionality** (~4-6 hours)
+- Step 2: Add note type parameter
+- Step 3: Dynamic field mapping
+- Step 4: Input parsing updates
+
+**Phase 3: Polish** (~2-3 hours)
+- Step 5: Formatter updates
+- Step 6: Cloze-specific features (optional)
+
+**Phase 4: Quality Assurance** (~2-3 hours)
+- Step 7: Testing
+- Step 8: Documentation
+
+**Total Estimated Time:** 10-15 hours
+
+**Recommended Approach:**
+1. Start with Step 1 (discovery) to validate FSI deck structure
+2. Implement Steps 2-3 (core changes) as MVP
+3. Test manually with small batches
+4. Proceed with Steps 4-5 if MVP works
+5. Add Step 6 (Cloze features) based on user feedback
+
+---
+
+## Next Actions
+
+**Immediate (Today):**
+1. Run Step 1 implementation to discover exact FSI note type name
+2. Create examples of Cloze and FSI card JSON/CSV formats
+3. Confirm user requirements (which note type is higher priority?)
+
+**Short Term (This Week):**
+1. Implement Step 2 (note type parameter) - quick win
+2. Implement Step 3 (field mapping) - most complex
+3. Test with small batch of real cards
+
+**Medium Term (Next Week):**
+1. Complete Steps 4-5 (input parsing, formatters)
+2. Add comprehensive tests (Step 7)
+3. Update documentation (Step 8)
+4. Consider Step 6 (Cloze features) based on feedback
