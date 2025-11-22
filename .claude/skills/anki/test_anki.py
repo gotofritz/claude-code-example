@@ -19,11 +19,13 @@ import click
 from main import (  # noqa: E402
     add_cards,
     describe_deck,
+    describe_deck_note_types,
     format_card_markdown,
     format_card_text,
     get_collection,
     get_collection_path,
     list_decks,
+    list_note_types,
     read_cards,
 )
 
@@ -425,6 +427,125 @@ def test_describe_deck_not_found():
     with patch("main.get_collection", return_value=mock_col):
         with pytest.raises(click.ClickException, match="Deck not found"):
             describe_deck(deck="Nonexistent", collection=None)
+
+
+def test_list_note_types():
+    """Test listing all note types in the collection."""
+    mock_col = MagicMock()
+    mock_col.models.all.return_value = [
+        {
+            "name": "Basic",
+            "type": 0,
+            "flds": [
+                {"name": "Front"},
+                {"name": "Back"},
+            ],
+        },
+        {
+            "name": "Cloze",
+            "type": 1,
+            "flds": [
+                {"name": "Text"},
+                {"name": "Extra"},
+            ],
+        },
+        {
+            "name": "FSI German Drills",
+            "type": 0,
+            "flds": [
+                {"name": "Prompt1"},
+                {"name": "Prompt2"},
+                {"name": "Answer"},
+            ],
+        },
+    ]
+
+    with patch("main.get_collection", return_value=mock_col):
+        list_note_types.callback(collection=None)
+
+    mock_col.close.assert_called_once()
+
+
+def test_describe_deck_note_types():
+    """Test describing note types used in a specific deck."""
+    mock_col = MagicMock()
+    mock_deck = {"id": 1, "name": "Test Deck"}
+    mock_col.decks.by_name.return_value = mock_deck
+    mock_col.find_notes.return_value = [1001, 1002, 1003]
+
+    # Mock three notes with different note types
+    mock_note_basic = MagicMock()
+    mock_note_basic.mid = 100
+    mock_note_basic.keys.return_value = ["Front", "Back"]
+    mock_note_basic.__getitem__ = lambda self, key: {"Front": "Hello", "Back": "Hallo"}[key]
+
+    mock_note_cloze = MagicMock()
+    mock_note_cloze.mid = 200
+    mock_note_cloze.keys.return_value = ["Text", "Extra"]
+    mock_note_cloze.__getitem__ = lambda self, key: {"Text": "{{c1::Berlin}} is the capital", "Extra": "Geography"}[key]
+
+    mock_note_fsi = MagicMock()
+    mock_note_fsi.mid = 300
+    mock_note_fsi.keys.return_value = ["Prompt1", "Prompt2", "Answer"]
+    mock_note_fsi.__getitem__ = lambda self, key: {"Prompt1": "_____ ist dort.", "Prompt2": "D- Flughafen", "Answer": "Der Flughafen ist dort."}[key]
+
+    mock_col.get_note.side_effect = [mock_note_basic, mock_note_cloze, mock_note_fsi]
+
+    # Mock models
+    mock_model_basic = {
+        "name": "Basic",
+        "type": 0,
+        "flds": [{"name": "Front"}, {"name": "Back"}],
+    }
+    mock_model_cloze = {
+        "name": "Cloze",
+        "type": 1,
+        "flds": [{"name": "Text"}, {"name": "Extra"}],
+    }
+    mock_model_fsi = {
+        "name": "FSI German Drills",
+        "type": 0,
+        "flds": [{"name": "Prompt1"}, {"name": "Prompt2"}, {"name": "Answer"}],
+    }
+
+    def get_model_side_effect(mid):
+        if mid == 100:
+            return mock_model_basic
+        elif mid == 200:
+            return mock_model_cloze
+        elif mid == 300:
+            return mock_model_fsi
+        return None
+
+    mock_col.models.get.side_effect = get_model_side_effect
+
+    with patch("main.get_collection", return_value=mock_col):
+        describe_deck_note_types.callback(deck="Test Deck", collection=None)
+
+    mock_col.close.assert_called_once()
+
+
+def test_describe_deck_note_types_not_found():
+    """Test error when describing note types for non-existent deck."""
+    mock_col = MagicMock()
+    mock_col.decks.by_name.return_value = None
+
+    with patch("main.get_collection", return_value=mock_col):
+        with pytest.raises(click.ClickException, match="Deck not found"):
+            describe_deck_note_types.callback(deck="Nonexistent", collection=None)
+
+
+def test_describe_deck_note_types_empty_deck():
+    """Test describing note types for a deck with no cards."""
+    mock_col = MagicMock()
+    mock_deck = {"id": 1, "name": "Empty Deck"}
+    mock_col.decks.by_name.return_value = mock_deck
+    mock_col.find_notes.return_value = []
+
+    with patch("main.get_collection", return_value=mock_col):
+        describe_deck_note_types.callback(deck="Empty Deck", collection=None)
+
+    mock_col.close.assert_called_once()
 
 
 if __name__ == "__main__":

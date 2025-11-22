@@ -251,6 +251,102 @@ def list_decks(*, collection: str | None):
             col.close()
 
 
+@cli.command(name="list-note-types")
+@click.option("--collection", help="Path to collection.anki2 file (auto-detected if not specified)")
+def list_note_types(*, collection: str | None):
+    """List all note types in the collection with their fields."""
+    col = None
+    try:
+        collection_path = Path(collection) if collection else None
+        col = get_collection(collection_path=collection_path)
+
+        models = col.models.all()
+
+        click.echo(f"Found {len(models)} note type(s):\n")
+        for model in sorted(models, key=lambda m: m["name"]):
+            model_name = model["name"]
+            model_type = "Cloze" if model["type"] == 1 else "Standard"
+            fields = [field["name"] for field in model["flds"]]
+
+            click.echo(f"  {model_name} ({model_type})")
+            click.echo(f"    Fields: {', '.join(fields)}")
+
+    finally:
+        if col:
+            col.close()
+
+
+@cli.command(name="describe-deck-note-types")
+@click.option("--deck", required=True, help="Deck name")
+@click.option("--collection", help="Path to collection.anki2 file (auto-detected if not specified)")
+def describe_deck_note_types(*, deck: str, collection: str | None):
+    """Show note types used in a specific deck with sample data."""
+    col = None
+    try:
+        collection_path = Path(collection) if collection else None
+        col = get_collection(collection_path=collection_path)
+
+        # Find deck by name
+        deck_obj = col.decks.by_name(deck)
+        if not deck_obj:
+            raise click.ClickException(f"Deck not found: {deck}")
+
+        # Find all notes in deck
+        note_ids = col.find_notes(f"deck:{deck}")
+        if not note_ids:
+            click.echo(f"No cards found in deck: {deck}")
+            return
+
+        # Collect note types and sample cards
+        note_type_data = {}
+        for note_id in note_ids:
+            note = col.get_note(note_id)
+            model = col.models.get(note.mid)
+            if not model:
+                continue
+
+            model_name = model["name"]
+            if model_name not in note_type_data:
+                model_type = "Cloze" if model["type"] == 1 else "Standard"
+                fields = [field["name"] for field in model["flds"]]
+                note_type_data[model_name] = {
+                    "type": model_type,
+                    "fields": fields,
+                    "samples": [],
+                }
+
+            # Add sample if we have fewer than 3
+            if len(note_type_data[model_name]["samples"]) < 3:
+                sample_fields = {}
+                for field_name in note.keys():
+                    sample_fields[field_name] = note[field_name]
+                note_type_data[model_name]["samples"].append(sample_fields)
+
+        # Output
+        click.echo(f"Deck: {deck}")
+        click.echo(f"Found {len(note_type_data)} note type(s) in use:\n")
+
+        for model_name in sorted(note_type_data.keys()):
+            data = note_type_data[model_name]
+            click.echo(f"  {model_name} ({data['type']})")
+            click.echo(f"    Fields: {', '.join(data['fields'])}")
+            click.echo("    Sample cards:")
+
+            for i, sample in enumerate(data["samples"], 1):
+                click.echo(f"      Sample {i}:")
+                for field_name, field_value in sample.items():
+                    # Truncate long values
+                    display_value = field_value[:80] + "..." if len(field_value) > 80 else field_value
+                    # Replace newlines with spaces for cleaner output
+                    display_value = display_value.replace("\n", " ")
+                    click.echo(f"        {field_name}: {display_value}")
+            click.echo()
+
+    finally:
+        if col:
+            col.close()
+
+
 @cli.command(name="describe-deck")
 @click.option("--deck", required=True, help="Deck name")
 @click.option("--collection", help="Path to collection.anki2 file (auto-detected if not specified)")

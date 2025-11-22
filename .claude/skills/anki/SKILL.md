@@ -59,6 +59,50 @@ Show detailed information about a specific deck.
 skill: anki describe-deck --deck "German Vocabulary"
 ```
 
+### list-note-types
+List all note types in your collection with their field structures.
+
+```bash
+skill: anki list-note-types
+```
+
+**Output shows:**
+- Note type name
+- Type (Standard or Cloze)
+- Field names
+
+**Example output:**
+
+```text
+Found 3 note type(s):
+
+  Basic (Standard)
+    Fields: Front, Back
+
+  Cloze (Cloze)
+    Fields: Text, Extra
+
+  FSI German Drills (Standard)
+    Fields: Prompt1, Prompt2, Answer
+```
+
+### describe-deck-note-types
+Show which note types are used in a specific deck with sample card data.
+
+```bash
+skill: anki describe-deck-note-types --deck "DEU FSI German Basic Course Drills"
+```
+
+**Output shows:**
+- Note types present in the deck
+- Field structure for each type
+- Up to 3 sample cards with field values
+
+**Use cases:**
+- Discover note type names before creating cards
+- Inspect field structure of custom note types
+- Validate deck contents and structure
+
 ### add-cards
 Add new cards to your Anki collection. **Requires Anki to be closed.**
 
