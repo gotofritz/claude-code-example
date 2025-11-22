@@ -9,15 +9,28 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-# Mock the anki imports before importing main
+# Mock only the anki imports (not click - we need real click for tests)
 sys.modules["anki"] = MagicMock()
 sys.modules["anki.collection"] = MagicMock()
 sys.modules["anki.errors"] = MagicMock()
-sys.modules["click"] = MagicMock()
 
 # Now we can safely import from the .claude/skills/anki directory
 sys.path.insert(0, str(Path(__file__).parent))
 import main  # noqa: E402
+from main import (  # noqa: E402
+    add_cards,
+    describe_deck,
+    format_card_markdown,
+    format_card_text,
+    get_collection,
+    get_collection_path,
+    list_decks,
+    read_cards,
+)
+
+# Import click for real (after main import which tries to import it)
+import click
+from click.testing import CliRunner
 
 
 def test_get_collection_path_from_env(monkeypatch, tmp_path):
@@ -35,8 +48,6 @@ def test_get_collection_path_from_env(monkeypatch, tmp_path):
 
 def test_get_collection_path_auto_detect_macos(monkeypatch):
     """Test collection path auto-detection on macOS."""
-    from main import get_collection_path
-
     # Clear environment variable
     monkeypatch.delenv("ANKI_COLLECTION_PATH", raising=False)
 
@@ -60,8 +71,6 @@ def test_get_collection_path_auto_detect_macos(monkeypatch):
 
 def test_format_card_text():
     """Test card text formatting."""
-    from main import format_card_text
-
     note = {
         "fields": {"Front": "Hello", "Back": "Hallo"},
         "tags": ["german", "greetings"],
@@ -78,8 +87,6 @@ def test_format_card_text():
 
 def test_format_card_markdown():
     """Test card markdown formatting."""
-    from main import format_card_markdown
-
     note = {
         "fields": {"Front": "Word", "Back": "Translation"},
         "tags": ["vocabulary"],
@@ -96,10 +103,6 @@ def test_format_card_markdown():
 
 def test_get_collection_nonexistent_env_path(monkeypatch):
     """Test error handling for non-existent env path."""
-    from main import get_collection_path
-
-    import click
-
     monkeypatch.setenv("ANKI_COLLECTION_PATH", "/nonexistent/path.anki2")
 
     with pytest.raises(click.ClickException, match="points to non-existent file"):
@@ -108,10 +111,6 @@ def test_get_collection_nonexistent_env_path(monkeypatch):
 
 def test_get_collection_path_not_found(monkeypatch):
     """Test error when no collection path can be found."""
-    from main import get_collection_path
-
-    import click
-
     # Clear env var and mock all paths to not exist
     monkeypatch.delenv("ANKI_COLLECTION_PATH", raising=False)
     monkeypatch.delenv("APPDATA", raising=False)
@@ -175,12 +174,11 @@ def test_format_output_csv():
 
 def test_get_collection_with_lock_error():
     """Test handling of locked collection (Anki running)."""
-    from main import get_collection
+    # Create a custom exception class that looks like DBError
+    class DBError(Exception):
+        pass
 
-    import click
-
-    mock_error = Exception("database is locked")
-    mock_error.__class__.__name__ = "DBError"
+    mock_error = DBError("database is locked")
 
     with patch("main.Collection", side_effect=mock_error):
         with pytest.raises(click.ClickException, match="Collection is locked"):
@@ -189,8 +187,6 @@ def test_get_collection_with_lock_error():
 
 def test_read_cards_with_mock_collection(tmp_path):
     """Test read_cards command with mocked Collection."""
-    from main import read_cards
-
     # Create mock collection
     mock_col = MagicMock()
     mock_note = MagicMock()
@@ -236,15 +232,10 @@ def test_read_cards_with_mock_collection(tmp_path):
 
 def test_read_cards_empty_results():
     """Test read_cards with no matching cards."""
-    from main import read_cards
-
     mock_col = MagicMock()
     mock_col.find_notes.return_value = []
 
     with patch("main.get_collection", return_value=mock_col):
-        # Capture click output
-        from click.testing import CliRunner
-
         # This will exit early with "No cards found" message
         read_cards(query="nonexistent:tag", output=None, format="text", collection=None)
 
@@ -253,8 +244,6 @@ def test_read_cards_empty_results():
 
 def test_add_cards_from_json(tmp_path):
     """Test adding cards from JSON file."""
-    from main import add_cards
-
     # Create test JSON file
     test_data = [
         {"front": "Hello", "back": "Hallo", "tags": ["german"]},
@@ -294,8 +283,6 @@ def test_add_cards_from_json(tmp_path):
 
 def test_add_cards_from_csv(tmp_path):
     """Test adding cards from CSV file."""
-    from main import add_cards
-
     # Create test CSV file
     csv_file = tmp_path / "cards.csv"
     csv_file.write_text(
@@ -329,8 +316,6 @@ def test_add_cards_from_csv(tmp_path):
 
 def test_add_cards_single_via_args():
     """Test adding a single card via command line arguments."""
-    from main import add_cards
-
     mock_col = MagicMock()
     mock_deck = {"id": 1}
     mock_col.decks.by_name.return_value = mock_deck
@@ -356,10 +341,6 @@ def test_add_cards_single_via_args():
 
 def test_add_cards_deck_not_found():
     """Test error when target deck doesn't exist."""
-    from main import add_cards
-
-    import click
-
     mock_col = MagicMock()
     mock_col.decks.by_name.return_value = None
 
@@ -379,10 +360,6 @@ def test_add_cards_deck_not_found():
 
 def test_add_cards_missing_input():
     """Test error when neither file nor args provided."""
-    from main import add_cards
-
-    import click
-
     mock_col = MagicMock()
     mock_deck = {"id": 1}
     mock_col.decks.by_name.return_value = mock_deck
@@ -401,8 +378,6 @@ def test_add_cards_missing_input():
 
 def test_list_decks():
     """Test listing all decks."""
-    from main import list_decks
-
     mock_col = MagicMock()
     mock_col.decks.all.return_value = [
         {"id": 1, "name": "German"},
@@ -420,8 +395,6 @@ def test_list_decks():
 
 def test_describe_deck():
     """Test describing a specific deck."""
-    from main import describe_deck
-
     mock_col = MagicMock()
     mock_deck = {"id": 1, "name": "Test Deck"}
     mock_col.decks.by_name.return_value = mock_deck
@@ -452,10 +425,6 @@ def test_describe_deck():
 
 def test_describe_deck_not_found():
     """Test error when describing non-existent deck."""
-    from main import describe_deck
-
-    import click
-
     mock_col = MagicMock()
     mock_col.decks.by_name.return_value = None
 
