@@ -23,8 +23,13 @@ Create a Claude Code skill that enables reading cards from and writing new cards
 **Implementation Status (as of 2025-11-22):**
 
 ✅ Steps 1-4 complete: Skill structure, documentation, read operations, write operations
-⚠️ Step 5 in progress: Basic tests created, integration tests needed
+⚠️ Step 5 in progress: Comprehensive test structure created (472 lines), but tests failing due to mocking issues (14/19 failing)
 ❌ Step 6 not started: Manual testing and validation pending
+
+**Recent Updates (commit 8215c1b):**
+- Expanded test coverage from 109 to 472 lines
+- Added comprehensive mocked tests for all operations (path detection, formatters, read/write operations, error handling)
+- Tests currently failing due to module mocking complexity - requires refactoring
 
 ## Breakdown
 
@@ -95,31 +100,39 @@ Create a Claude Code skill that enables reading cards from and writing new cards
 
 **Complexity:** High
 
-### Step 5: Create Tests ⚠️ PARTIALLY COMPLETE
+### Step 5: Create Tests ⚠️ IN PROGRESS - NEEDS FIXING
 
-- [x] Create test fixtures with sample card data (test_anki.py:47-80)
-- [x] Test collection path detection logic (test_anki.py:10-44)
-- [ ] Test read operations with mock collection (placeholder at test_anki.py:100-104)
-- [x] Test output formatters (JSON, CSV, Markdown, Text) - Text/Markdown done (test_anki.py:47-80)
-- [ ] Test input validation for write operations (placeholder at test_anki.py:93-97)
-- [x] Test error handling (locked collection, missing decks) - Partial (test_anki.py:83-90)
-- [ ] Add integration test with temporary Anki collection
+- [x] Create test fixtures with sample card data (test_anki.py:61-95)
+- [x] Test collection path detection logic (test_anki.py:23-122)
+- [x] Test output formatters (JSON, CSV, Markdown, Text) (test_anki.py:61-95, 125-174)
+- [x] Test read operations with mock collection (test_anki.py:190-252)
+- [x] Test write operations (add_cards from JSON, CSV, CLI args) (test_anki.py:254-400)
+- [x] Test error handling (locked collection, missing decks, invalid input) (test_anki.py:176-188, 357-400)
+- [x] Test list/describe deck operations (test_anki.py:402-465)
+- [~] Integration test with temporary Anki collection (skipped - manual testing in Step 6 will validate)
 
-**Status:** Basic test structure exists (109 lines) with unit tests for formatters and path detection. Integration tests and comprehensive coverage still needed.
+**Status:** Comprehensive test structure created (472 lines, 19 tests), but 14/19 tests failing due to mocking strategy issues.
+
+**Test Failures (commit 8215c1b):**
+- Import inconsistencies (missing `from main import` in some tests)
+- Over-mocking causing issues (mocked `click` breaks `pytest.raises(click.ClickException)`)
+- Mock behavior doesn't match real module behavior
+- MagicMock objects not configured to work with pytest assertions
 
 **Remaining Work:**
 
-- Mock Collection objects for read/write operation tests
-- Complete output formatter tests (JSON, CSV)
-- Add integration test with temporary collection
-- Test add_cards input validation thoroughly
-- Improve test coverage to reasonable level
+- Refactor mocking strategy to avoid module-level mocks
+- Fix import statements to be consistent
+- Use real click.ClickException in tests instead of mocking click
+- Configure MagicMock objects properly for assertions
+- Rerun tests to verify all pass
+- Consider integration test (optional - manual testing may be sufficient)
 
-**Reasoning:** Tests ensure reliability and catch edge cases, especially important for data operations.
+**Reasoning:** Tests ensure reliability and catch edge cases, especially important for data operations. Mocking Anki module dependencies proved more complex than anticipated.
 
 **Dependencies:** Steps 3-4 complete
 
-**Complexity:** Medium
+**Complexity:** Medium-High (mocking complexity higher than expected)
 
 ### Step 6: Manual Testing and Validation ❌ NOT STARTED
 
@@ -198,6 +211,31 @@ Create a Claude Code skill that enables reading cards from and writing new cards
 - Should we support all Anki note types or start with Basic?
   - Recommendation: Start with Basic, add others based on user feedback
 - Should we implement batch operations for adding multiple cards?
-  - Recommendation: Yes, accept CSV/JSON files with multiple cards
+  - Recommendation: Yes, accept CSV/JSON files with multiple cards (IMPLEMENTED)
 - Should we add card editing/deletion capabilities?
   - Recommendation: Not in initial version, focus on read + create first
+
+## Next Steps
+
+**Priority 1: Fix Tests (Step 5)**
+1. Refactor test_anki.py mocking strategy
+2. Remove module-level mocks for click
+3. Fix import statements
+4. Run tests until all pass
+
+**Priority 2: Manual Testing (Step 6)**
+1. Test read operations against real Anki collection
+2. Test write operations (with Anki closed)
+3. Verify output formats
+4. Test error scenarios
+5. Document findings
+
+**Priority 3: Production Readiness**
+1. Update README.md to document Anki skill
+2. Consider adding usage examples
+3. Document any limitations discovered during testing
+
+**Timeline Estimate:**
+- Test fixes: ~1-2 hours
+- Manual testing: ~2-3 hours
+- Documentation: ~30 minutes
