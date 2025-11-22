@@ -166,7 +166,8 @@ def test_get_collection_with_lock_error():
 
     mock_error = DBError("database is locked")
 
-    with patch("main.Collection", side_effect=mock_error):
+    # Patch both Collection and DBError so the except clause can catch it
+    with patch("main.Collection", side_effect=mock_error), patch("main.DBError", DBError):
         with pytest.raises(click.ClickException, match="Collection is locked"):
             get_collection()
 
@@ -194,7 +195,7 @@ def test_read_cards_with_mock_collection(tmp_path):
     output_file = tmp_path / "output.json"
 
     with patch("main.get_collection", return_value=mock_col):
-        read_cards(
+        read_cards.callback(
             query="tag:test",
             output=str(output_file),
             format="json",
@@ -223,7 +224,7 @@ def test_read_cards_empty_results():
 
     with patch("main.get_collection", return_value=mock_col):
         # This will exit early with "No cards found" message
-        read_cards(query="nonexistent:tag", output=None, format="text", collection=None)
+        read_cards.callback(query="nonexistent:tag", output=None, format="text", collection=None)
 
     mock_col.close.assert_called_once()
 
@@ -252,8 +253,9 @@ def test_add_cards_from_json(tmp_path):
     mock_col.new_note.return_value = mock_note
 
     with patch("main.get_collection", return_value=mock_col):
-        add_cards(
+        add_cards.callback(
             deck="Test Deck",
+            note_type="Basic",
             input_file=str(json_file),
             front=None,
             back=None,
@@ -286,8 +288,9 @@ def test_add_cards_from_csv(tmp_path):
     mock_col.new_note.return_value = mock_note
 
     with patch("main.get_collection", return_value=mock_col):
-        add_cards(
+        add_cards.callback(
             deck="Test Deck",
+            note_type="Basic",
             input_file=str(csv_file),
             front=None,
             back=None,
@@ -311,8 +314,9 @@ def test_add_cards_single_via_args():
     mock_col.new_note.return_value = mock_note
 
     with patch("main.get_collection", return_value=mock_col):
-        add_cards(
+        add_cards.callback(
             deck="Quick Deck",
+            note_type="Basic",
             input_file=None,
             front="Question",
             back="Answer",
@@ -332,8 +336,9 @@ def test_add_cards_deck_not_found():
 
     with patch("main.get_collection", return_value=mock_col):
         with pytest.raises(click.ClickException, match="Deck not found"):
-            add_cards(
+            add_cards.callback(
                 deck="Nonexistent Deck",
+                note_type="Basic",
                 input_file=None,
                 front="Test",
                 back="Test",
@@ -352,14 +357,42 @@ def test_add_cards_missing_input():
 
     with patch("main.get_collection", return_value=mock_col):
         with pytest.raises(click.ClickException, match="Must provide either"):
-            add_cards(
+            add_cards.callback(
                 deck="Test Deck",
+                note_type="Basic",
                 input_file=None,
                 front=None,
                 back=None,
                 tags=None,
                 collection=None,
             )
+
+
+def test_add_cards_invalid_note_type():
+    """Test error when note type doesn't exist."""
+    mock_col = MagicMock()
+    mock_deck = {"id": 1}
+    mock_col.decks.by_name.return_value = mock_deck
+    mock_col.models.by_name.return_value = None  # Note type not found
+    mock_col.models.all.return_value = [
+        {"name": "Basic"},
+        {"name": "Cloze"},
+        {"name": "Custom"},
+    ]
+
+    with patch("main.get_collection", return_value=mock_col):
+        with pytest.raises(click.ClickException, match="Note type 'InvalidType' not found"):
+            add_cards.callback(
+                deck="Test Deck",
+                note_type="InvalidType",
+                input_file=None,
+                front="Test",
+                back="Test",
+                tags=None,
+                collection=None,
+            )
+
+    mock_col.close.assert_called_once()
 
 
 def test_list_decks():
@@ -374,7 +407,7 @@ def test_list_decks():
 
     with patch("main.get_collection", return_value=mock_col):
         # Just verify it doesn't crash - output goes to stdout
-        list_decks(collection=None)
+        list_decks.callback(collection=None)
 
     mock_col.close.assert_called_once()
 
@@ -404,7 +437,7 @@ def test_describe_deck():
     mock_col.get_note.return_value = mock_note
 
     with patch("main.get_collection", return_value=mock_col):
-        describe_deck(deck="Test Deck", collection=None)
+        describe_deck.callback(deck="Test Deck", collection=None)
 
     mock_col.close.assert_called_once()
 
@@ -416,7 +449,7 @@ def test_describe_deck_not_found():
 
     with patch("main.get_collection", return_value=mock_col):
         with pytest.raises(click.ClickException, match="Deck not found"):
-            describe_deck(deck="Nonexistent", collection=None)
+            describe_deck.callback(deck="Nonexistent", collection=None)
 
 
 def test_list_note_types():

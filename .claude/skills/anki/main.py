@@ -393,6 +393,7 @@ def describe_deck(*, deck: str, collection: str | None):
 
 @cli.command(name="add-cards")
 @click.option("--deck", required=True, help="Target deck name")
+@click.option("--note-type", default="Basic", help="Note type name (default: Basic)")
 @click.option("--input", "input_file", help="CSV or JSON file with card data")
 @click.option("--front", help="Card front (for single card)")
 @click.option("--back", help="Card back (for single card)")
@@ -401,6 +402,7 @@ def describe_deck(*, deck: str, collection: str | None):
 def add_cards(
     *,
     deck: str,
+    note_type: str,
     input_file: str | None,
     front: str | None,
     back: str | None,
@@ -487,10 +489,18 @@ def add_cards(
         else:
             raise click.ClickException("Must provide either --input file or --front/--back arguments")
 
-        # Get the Basic note type
-        model = col.models.by_name("Basic")
+        # Get the specified note type
+        model = col.models.by_name(note_type)
         if not model:
-            raise click.ClickException("Basic note type not found in collection")
+            # List available note types to help user
+            available_models = col.models.all()
+            model_names = [m["name"] for m in available_models]
+            model_list = "\n  - ".join(sorted(model_names))
+            raise click.ClickException(
+                f"Note type '{note_type}' not found in collection.\n\n"
+                f"Available note types:\n  - {model_list}\n\n"
+                f"Use 'list-note-types' command to see field structures."
+            )
 
         # Add cards using high-level API
         added_count = 0

@@ -36,18 +36,18 @@ From investigation of DEU FSI German Basic Course Drills deck:
 
 ### Step 1: Add Discovery Commands ✅ High Priority
 
-- [ ] Implement `list-note-types` command
+- [x] Implement `list-note-types` command
   - List all note types in collection with field names
   - Show type (Standard vs Cloze)
   - Sort alphabetically for readability
-- [ ] Implement `describe-deck-note-types` command
+- [x] Implement `describe-deck-note-types` command
   - Show which note types are used in a specific deck
   - Include field structure for each
   - Show sample card data
-- [ ] Add tests for discovery commands
-- [ ] Update SKILL.md with new command documentation
+- [x] Add tests for discovery commands
+- [x] Update SKILL.md with new command documentation
 
-**Status**: Not started
+**Status**: ✅ Complete
 
 **Reasoning**: Need to discover what note types exist before implementing multi-type support. This allows users to see available note types and validate assumptions about FSI deck structure.
 
@@ -68,14 +68,14 @@ From investigation of DEU FSI German Basic Course Drills deck:
 
 ### Step 2: Add Note Type Parameter to add-cards 🔥 Critical
 
-- [ ] Add `--note-type` CLI parameter (default: "Basic")
-- [ ] Replace hardcoded `col.models.by_name("Basic")` with dynamic lookup
-- [ ] Add validation: error if note type doesn't exist
-- [ ] List available note types in error message
-- [ ] Update help text and examples
-- [ ] Maintain backward compatibility (Basic as default)
+- [x] Add `--note-type` CLI parameter (default: "Basic")
+- [x] Replace hardcoded `col.models.by_name("Basic")` with dynamic lookup
+- [x] Add validation: error if note type doesn't exist
+- [x] List available note types in error message
+- [x] Update help text and examples
+- [x] Maintain backward compatibility (Basic as default)
 
-**Status**: Not started
+**Status**: ✅ Complete
 
 **Reasoning**: This is the core change needed. Without dynamic note type selection, cannot create Cloze or FSI-style cards. Keeping "Basic" as default ensures existing workflows don't break.
 
