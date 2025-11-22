@@ -20,12 +20,9 @@ import sys
 from io import StringIO
 from pathlib import Path
 
-try:
-    import click
-    from anki.collection import Collection
-    from anki.errors import DBError
-except ImportError:
-    sys.exit(1)
+import click
+from anki.collection import Collection
+from anki.errors import DBError
 
 
 def get_collection_path() -> Path:
