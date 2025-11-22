@@ -1,4 +1,9 @@
-# Development Standards
+# Project Info
+
+- Issue tracker: GitHub Issues
+- Repository: Use `gh` CLI for all GitHub operations
+
+## Development Standards
 
 **Start here:** README.md for purpose, docs/project-plan.md for current state
 
