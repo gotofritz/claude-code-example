@@ -3,6 +3,7 @@
 ## Overview
 
 Extend the Anki skill to support multiple note types beyond "Basic", specifically:
+
 1. **Cloze** note type (Text/Extra fields) for creating fill-in-the-blank cards
 2. **FSI German Drills** custom note type (Prompt1/Prompt2/Answer fields) used by the DEU FSI German Basic Course Drills deck
 
@@ -11,6 +12,7 @@ Currently, the skill hardcodes the "Basic" note type (Front/Back fields), limiti
 ## Current State
 
 **Existing Anki Skill (Production-Ready):**
+
 - **Location**: `.claude/skills/anki/`
 - **Commands**: list-decks, describe-deck, read-cards, add-cards
 - **429 lines** of production code in main.py
@@ -18,6 +20,7 @@ Currently, the skill hardcodes the "Basic" note type (Front/Back fields), limiti
 - **Validated** against real collection (34MB, 16,268 cards)
 
 **Current Limitations:**
+
 - Note type "Basic" hardcoded at `main.py:395`
 - Field names "Front"/"Back" hardcoded at `main.py:406-407`
 - Input format (JSON/CSV) expects only "front"/"back" keys
@@ -25,6 +28,7 @@ Currently, the skill hardcodes the "Basic" note type (Front/Back fields), limiti
 
 **Known Note Types in Collection:**
 From investigation of DEU FSI German Basic Course Drills deck:
+
 - **Custom Note Type**: Has 3 fields - `Prompt1`, `Prompt2`, `Answer`
 - **Structure**: Drill-style with template sentence, article hint, and complete answer
 - **Example**:
@@ -54,11 +58,13 @@ From investigation of DEU FSI German Basic Course Drills deck:
 **Dependencies**: None - can use existing `get_collection()` helper
 
 **Complexity**: Low-Medium (~2-3 hours)
+
 - Simple Anki API usage (`col.models.all()`, `col.models.get()`)
 - Straightforward output formatting
 - Minimal error handling needed
 
 **Acceptance Criteria:**
+
 - Can list all note types with their fields
 - Can show note types used in FSI deck
 - Output clearly shows field structure
@@ -82,6 +88,7 @@ From investigation of DEU FSI German Basic Course Drills deck:
 **Dependencies**: None (can proceed without Step 1, but Step 1 helps users discover options)
 
 **Complexity**: Low (~30-45 minutes)
+
 - One parameter addition
 - Simple string substitution
 - Clear validation logic
@@ -110,6 +117,7 @@ From investigation of DEU FSI German Basic Course Drills deck:
 **Dependencies**: Step 2 complete (need note type selected)
 
 **Complexity**: Medium-High (~2-3 hours)
+
 - Complex logic for field matching
 - Multiple input format support
 - Backward compatibility critical
@@ -136,6 +144,7 @@ From investigation of DEU FSI German Basic Course Drills deck:
 **Dependencies**: Step 3 complete (need field mapping logic)
 
 **Complexity**: Medium (~1-2 hours)
+
 - JSON changes are simple (add `fields` key support)
 - CSV is more complex (dynamic column detection)
 - Need clear examples for each note type
@@ -162,6 +171,7 @@ From investigation of DEU FSI German Basic Course Drills deck:
 **Dependencies**: None (can work independently), but Step 1 helps validate changes
 
 **Complexity**: Low-Medium (~1 hour)
+
 - Simple conditional logic
 - Mostly cosmetic improvements
 - Low risk (doesn't affect data integrity)
@@ -170,26 +180,29 @@ From investigation of DEU FSI German Basic Course Drills deck:
 
 ---
 
-### Step 6: Add Cloze-Specific Features 🔷 Nice to Have
+### Step 6: Add Cloze-Specific Features ✅ Complete
 
-- [ ] Add basic Cloze deletion syntax validation
-  - Warn if Text field missing `{{c1::...}}` syntax
+- [x] Add basic Cloze deletion syntax validation
+  - Error if Text field missing `{{c1::...}}` syntax (CLI shortcuts)
+  - Warning for batch imports (skips invalid cards)
   - Suggest correct format in error message
-- [ ] Add `--cloze-text` and `--cloze-extra` shortcuts for CLI
+- [x] Add `--cloze-text` and `--cloze-extra` shortcuts for CLI
   - Convenience parameters for single Cloze card creation
   - Maps to Text/Extra fields automatically
-- [ ] Add Cloze examples to documentation
+  - Strict validation on CLI input
+- [x] Add Cloze examples to documentation
   - JSON format with cloze syntax
   - Multiple cloze deletions example
   - Hints in cloze deletions
 
-**Status**: Not started
+**Status**: ✅ Complete (commit 499e874)
 
 **Reasoning**: Cloze cards have special syntax requirements. Basic validation and convenience features improve user experience and reduce errors. However, Anki itself validates cloze syntax, so this is nice-to-have rather than critical.
 
 **Dependencies**: Steps 2-3 complete (need note type support)
 
 **Complexity**: Low (~30-45 minutes)
+
 - Simple regex validation
 - Additional CLI parameters
 - Documentation examples
@@ -198,24 +211,41 @@ From investigation of DEU FSI German Basic Course Drills deck:
 
 ---
 
-### Step 7: Comprehensive Testing 🔥 Critical
+### Step 7: Comprehensive Testing ✅ Complete
 
-- [ ] Add tests for Cloze card creation
-- [ ] Add tests for FSI German-style card creation (3-field custom type)
-- [ ] Add tests for discovery commands
-- [ ] Add tests for field mapping logic
-- [ ] Add tests for flexible formatters
-- [ ] Add tests for error cases (missing fields, invalid note type)
-- [ ] Update existing tests to use parameterized note types
-- [ ] Test backward compatibility (Basic note type still works)
+- [x] Add tests for Cloze card creation
+  - test_format_card_text_cloze, test_format_card_markdown_cloze
+  - test_add_cards_cloze_explicit_fields, test_add_cards_cloze_via_cli_shortcut
+  - test_add_cards_cloze_invalid_syntax, test_has_cloze_deletion
+  - test_add_cards_batch_cloze_with_invalid_skips
+- [x] Add tests for FSI German-style card creation (3-field custom type)
+  - test_add_cards_custom_note_type_flexible
+  - test_add_cards_csv_flexible_columns
+- [x] Add tests for discovery commands
+  - test_list_note_types, test_describe_deck_note_types
+  - test_describe_deck_note_types_not_found, test_describe_deck_note_types_empty_deck
+- [x] Add tests for field mapping logic
+  - test_add_cards_invalid_field_name, test_add_cards_front_back_with_wrong_note_type
+  - test_add_cards_no_matching_fields
+- [x] Add tests for flexible formatters
+  - test_format_card_text_custom_fields, test_format_card_markdown_custom_fields
+  - Cloze formatters (above)
+- [x] Add tests for error cases (missing fields, invalid note type)
+  - test_add_cards_deck_not_found, test_add_cards_missing_input
+  - test_add_cards_invalid_note_type, field mapping errors (above)
+- [x] Update existing tests to use parameterized note types
+  - Added cloze_text/cloze_extra parameters to all 9 existing add_cards tests
+- [x] Test backward compatibility (Basic note type still works)
+  - test_add_cards_from_json, test_add_cards_from_csv, test_add_cards_single_via_args
 
-**Status**: Not started
+**Status**: ✅ Complete (38 tests, all passing)
 
 **Reasoning**: Multi-note-type support adds significant complexity. Comprehensive tests ensure reliability and prevent regressions. Current test coverage is 8/19 passing; need to improve and extend.
 
 **Dependencies**: Steps 2-5 complete (need implemented features to test)
 
 **Complexity**: Medium (~2-3 hours)
+
 - ~200-300 new test lines estimated
 - Need mock note type structures
 - Field mapping tests most critical
@@ -248,6 +278,7 @@ From investigation of DEU FSI German Basic Course Drills deck:
 **Dependencies**: Steps 1-6 complete (document implemented features)
 
 **Complexity**: Low (~30-45 minutes)
+
 - Mostly writing examples
 - Can reuse manual testing examples
 - Important for user adoption
@@ -259,23 +290,27 @@ From investigation of DEU FSI German Basic Course Drills deck:
 ## Integration
 
 **Impact on Existing Code:**
+
 - **main.py**: ~150-200 new lines, ~50-80 modified lines
 - **SKILL.md**: ~100-150 new documentation lines
 - **test_anki.py**: ~200-300 new test lines
 - **No breaking changes**: Basic note type remains default, existing workflows unaffected
 
 **Affected Functions:**
+
 - `add_cards()`: Add parameter, remove hardcoding
 - `format_card_text()`, `format_card_markdown()`: Make flexible
 - New: `list_note_types()`, `describe_deck_note_types()`, `map_input_to_note_fields()`
 
 **Backward Compatibility:**
+
 - `--note-type` defaults to "Basic"
 - Legacy `front`/`back` keys still work
 - Existing JSON/CSV files continue to work
 - No changes to read operations API
 
 **Data Safety:**
+
 - Read operations unaffected (no data modification)
 - Write operations use same high-level Anki API
 - Field mapping errors caught before writes
@@ -288,16 +323,19 @@ From investigation of DEU FSI German Basic Course Drills deck:
 **Open Questions:**
 
 1. **What exactly is the FSI deck's note type name?**
+
    - **Status**: Partially resolved - cards use 3 fields (Prompt1, Prompt2, Answer)
    - **Need**: Run Step 1 (list-note-types) to get exact note type name
    - **Impact**: Medium - need name for documentation and examples
 
 2. **Does the FSI note type have any custom JavaScript/CSS?**
+
    - **Risk**: May affect card display or behavior
    - **Mitigation**: Inspect note type templates after Step 1
    - **Impact**: Low - write operations don't touch templates
 
 3. **Should we support card type specification (for note types with multiple templates)?**
+
    - **Example**: Basic has 1 template, but custom types can have multiple
    - **Current**: Uses default template (first one)
    - **Decision**: Defer to future - default template sufficient for MVP
@@ -310,16 +348,19 @@ From investigation of DEU FSI German Basic Course Drills deck:
 **Potential Issues:**
 
 1. **Field Name Conflicts**
+
    - **Risk**: User provides "front" but note type expects "Front" (capitalization)
    - **Mitigation**: Case-insensitive matching in field mapper
    - **Severity**: Medium - confusing errors if not handled
 
 2. **Cloze Syntax Errors**
+
    - **Risk**: Invalid cloze syntax (`{{c1::text}}`) causes card generation failure
    - **Mitigation**: Basic validation (Step 6), clear error messages
    - **Severity**: Low-Medium - Anki validates, but earlier validation improves UX
 
 3. **Breaking Existing Tests**
+
    - **Risk**: Changes to add_cards() might break 8 currently passing tests
    - **Mitigation**: Maintain backward compatibility, update tests carefully
    - **Severity**: Medium - important not to regress working functionality
@@ -331,19 +372,20 @@ From investigation of DEU FSI German Basic Course Drills deck:
 
 **Risk Assessment:**
 
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|---------|------------|
-| Existing workflows break | Low | High | Default to "Basic", comprehensive tests |
-| Field mapping bugs | Medium | Medium | Thorough testing, clear errors |
-| Performance degradation | Low | Low | Minimal - same API usage |
-| User confusion | Medium | Low | Good documentation, examples |
-| Cloze syntax issues | Low | Low | Validation, error messages |
+| Risk                     | Probability | Impact | Mitigation                              |
+| ------------------------ | ----------- | ------ | --------------------------------------- |
+| Existing workflows break | Low         | High   | Default to "Basic", comprehensive tests |
+| Field mapping bugs       | Medium      | Medium | Thorough testing, clear errors          |
+| Performance degradation  | Low         | Low    | Minimal - same API usage                |
+| User confusion           | Medium      | Low    | Good documentation, examples            |
+| Cloze syntax issues      | Low         | Low    | Validation, error messages              |
 
 ---
 
 ## Success Criteria
 
 **Must Have (MVP):**
+
 - ✅ Can create Cloze cards with Text/Extra fields
 - ✅ Can create FSI-style cards with Prompt1/Prompt2/Answer fields
 - ✅ Existing Basic card creation still works (backward compatibility)
@@ -351,12 +393,14 @@ From investigation of DEU FSI German Basic Course Drills deck:
 - ✅ Comprehensive tests for all three note types
 
 **Should Have:**
+
 - ✅ Discovery commands to explore note types
 - ✅ Flexible formatters show non-Basic cards correctly
 - ✅ Documentation with examples for each note type
 - ✅ CSV/JSON support for all note types
 
 **Nice to Have:**
+
 - Cloze-specific validation
 - Auto-detection of note type from deck
 - Field mapping configuration file
@@ -364,48 +408,22 @@ From investigation of DEU FSI German Basic Course Drills deck:
 
 ---
 
-## Timeline Estimate
-
-**Phase 1: Discovery** (~2-3 hours)
-- Step 1: Discovery commands
-
-**Phase 2: Core Functionality** (~4-6 hours)
-- Step 2: Add note type parameter
-- Step 3: Dynamic field mapping
-- Step 4: Input parsing updates
-
-**Phase 3: Polish** (~2-3 hours)
-- Step 5: Formatter updates
-- Step 6: Cloze-specific features (optional)
-
-**Phase 4: Quality Assurance** (~2-3 hours)
-- Step 7: Testing
-- Step 8: Documentation
-
-**Total Estimated Time:** 10-15 hours
-
-**Recommended Approach:**
-1. Start with Step 1 (discovery) to validate FSI deck structure
-2. Implement Steps 2-3 (core changes) as MVP
-3. Test manually with small batches
-4. Proceed with Steps 4-5 if MVP works
-5. Add Step 6 (Cloze features) based on user feedback
-
----
-
 ## Next Actions
 
 **Immediate (Today):**
+
 1. Run Step 1 implementation to discover exact FSI note type name
 2. Create examples of Cloze and FSI card JSON/CSV formats
 3. Confirm user requirements (which note type is higher priority?)
 
 **Short Term (This Week):**
+
 1. Implement Step 2 (note type parameter) - quick win
 2. Implement Step 3 (field mapping) - most complex
 3. Test with small batch of real cards
 
 **Medium Term (Next Week):**
+
 1. Complete Steps 4-5 (input parsing, formatters)
 2. Add comprehensive tests (Step 7)
 3. Update documentation (Step 8)

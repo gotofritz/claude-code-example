@@ -981,5 +981,72 @@ def test_has_cloze_deletion():
     assert not _has_cloze_deletion("")
 
 
+def test_add_cards_batch_cloze_with_invalid_skips(tmp_path):
+    """Test that batch Cloze import skips cards without cloze deletions."""
+    # Create JSON with mix of valid and invalid Cloze cards
+    json_file = tmp_path / "mixed_cloze.json"
+    json_file.write_text(
+        json.dumps([
+            {
+                "fields": {
+                    "Text": "{{c1::Valid}} cloze card",
+                    "Extra": "Good"
+                },
+                "tags": ["test"]
+            },
+            {
+                "fields": {
+                    "Text": "Invalid - no cloze deletion",
+                    "Extra": "Bad"
+                },
+                "tags": ["test"]
+            },
+            {
+                "fields": {
+                    "Text": "Another {{c1::valid}} one",
+                    "Extra": "Good"
+                },
+                "tags": ["test"]
+            },
+        ])
+    )
+
+    mock_col = MagicMock()
+    mock_deck = {"id": 1}
+    mock_col.decks.by_name.return_value = mock_deck
+
+    mock_model = {
+        "id": 2,
+        "name": "Cloze",
+        "type": 1,  # Cloze type
+        "flds": [
+            {"name": "Text"},
+            {"name": "Extra"},
+        ],
+    }
+    mock_col.models.by_name.return_value = mock_model
+
+    mock_note = MagicMock()
+    mock_note.__setitem__ = MagicMock()
+    mock_col.new_note.return_value = mock_note
+
+    with patch("main.get_collection", return_value=mock_col):
+        add_cards.callback(
+            deck="Test Cloze",
+            note_type="Cloze",
+            input_file=str(json_file),
+            front=None,
+            back=None,
+            cloze_text=None,
+            cloze_extra=None,
+            tags=None,
+            collection=None,
+        )
+
+    # Should have added only 2 cards (skipped the invalid one)
+    assert mock_col.add_note.call_count == 2
+    mock_col.save.assert_called_once()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
