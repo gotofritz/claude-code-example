@@ -40,7 +40,9 @@ def test_get_collection_path_auto_detect_macos(monkeypatch):
 
     # Mock Path.home() and make macOS path exist
     mock_home = Path("/Users/testuser")
-    expected_path = mock_home / "Library" / "Application Support" / "Anki2" / "User 1" / "collection.anki2"
+    expected_path = (
+        mock_home / "Library" / "Application Support" / "Anki2" / "User 1" / "collection.anki2"
+    )
 
     with patch("main.Path.home", return_value=mock_home):
         # Mock exists to return True only for expected path
@@ -226,6 +228,7 @@ def test_format_output_csv():
 
 def test_get_collection_with_lock_error():
     """Test handling of locked collection (Anki running)."""
+
     # Create a custom exception class that looks like DBError
     class DBError(Exception):
         pass
@@ -602,12 +605,19 @@ def test_describe_deck_note_types():
     mock_note_cloze = MagicMock()
     mock_note_cloze.mid = 200
     mock_note_cloze.keys.return_value = ["Text", "Extra"]
-    mock_note_cloze.__getitem__ = lambda self, key: {"Text": "{{c1::Berlin}} is the capital", "Extra": "Geography"}[key]
+    mock_note_cloze.__getitem__ = lambda self, key: {
+        "Text": "{{c1::Berlin}} is the capital",
+        "Extra": "Geography",
+    }[key]
 
     mock_note_fsi = MagicMock()
     mock_note_fsi.mid = 300
     mock_note_fsi.keys.return_value = ["Prompt1", "Prompt2", "Answer"]
-    mock_note_fsi.__getitem__ = lambda self, key: {"Prompt1": "_____ ist dort.", "Prompt2": "D- Flughafen", "Answer": "Der Flughafen ist dort."}[key]
+    mock_note_fsi.__getitem__ = lambda self, key: {
+        "Prompt1": "_____ ist dort.",
+        "Prompt2": "D- Flughafen",
+        "Answer": "Der Flughafen ist dort.",
+    }[key]
 
     mock_col.get_note.side_effect = [mock_note_basic, mock_note_cloze, mock_note_fsi]
 
@@ -937,7 +947,9 @@ def test_add_cards_cloze_via_cli_shortcut():
         )
 
     # Verify fields were set correctly
-    mock_note.__setitem__.assert_any_call("Text", "{{c1::Berlin}} is the capital of {{c2::Germany}}")
+    mock_note.__setitem__.assert_any_call(
+        "Text", "{{c1::Berlin}} is the capital of {{c2::Germany}}"
+    )
     mock_note.__setitem__.assert_any_call("Extra", "Geography")
     mock_col.add_note.assert_called_once()
     mock_col.save.assert_called_once()
@@ -986,29 +998,19 @@ def test_add_cards_batch_cloze_with_invalid_skips(tmp_path):
     # Create JSON with mix of valid and invalid Cloze cards
     json_file = tmp_path / "mixed_cloze.json"
     json_file.write_text(
-        json.dumps([
-            {
-                "fields": {
-                    "Text": "{{c1::Valid}} cloze card",
-                    "Extra": "Good"
+        json.dumps(
+            [
+                {"fields": {"Text": "{{c1::Valid}} cloze card", "Extra": "Good"}, "tags": ["test"]},
+                {
+                    "fields": {"Text": "Invalid - no cloze deletion", "Extra": "Bad"},
+                    "tags": ["test"],
                 },
-                "tags": ["test"]
-            },
-            {
-                "fields": {
-                    "Text": "Invalid - no cloze deletion",
-                    "Extra": "Bad"
+                {
+                    "fields": {"Text": "Another {{c1::valid}} one", "Extra": "Good"},
+                    "tags": ["test"],
                 },
-                "tags": ["test"]
-            },
-            {
-                "fields": {
-                    "Text": "Another {{c1::valid}} one",
-                    "Extra": "Good"
-                },
-                "tags": ["test"]
-            },
-        ])
+            ]
+        )
     )
 
     mock_col = MagicMock()
