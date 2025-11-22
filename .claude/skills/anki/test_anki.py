@@ -1,36 +1,23 @@
 """Tests for Anki skill."""
 
 import json
-import sys
-import tempfile
-from io import StringIO
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
+import click
 import pytest
-
-# Mock only the anki imports (not click - we need real click for tests)
-sys.modules["anki"] = MagicMock()
-sys.modules["anki.collection"] = MagicMock()
-sys.modules["anki.errors"] = MagicMock()
-
-# Now we can safely import from the .claude/skills/anki directory
-sys.path.insert(0, str(Path(__file__).parent))
-import main  # noqa: E402
-from main import (  # noqa: E402
+from main import (
     add_cards,
     describe_deck,
+    describe_deck_note_types,
     format_card_markdown,
     format_card_text,
     get_collection,
     get_collection_path,
     list_decks,
+    list_note_types,
     read_cards,
 )
-
-# Import click for real (after main import which tries to import it)
-import click
-from click.testing import CliRunner
 
 
 def test_get_collection_path_from_env(monkeypatch, tmp_path):
@@ -57,7 +44,6 @@ def test_get_collection_path_auto_detect_macos(monkeypatch):
 
     with patch("main.Path.home", return_value=mock_home):
         # Mock exists to return True only for expected path
-        original_exists = Path.exists
 
         def mock_exists(self):
             if self == expected_path:
@@ -99,6 +85,72 @@ def test_format_card_markdown():
     assert "Vocab" in result
     assert "vocabulary" in result
     assert result.startswith("- ")
+
+
+def test_format_card_text_cloze():
+    """Test text formatting for Cloze note type."""
+    note = {
+        "fields": {"Text": "{{c1::Berlin}} is the capital", "Extra": "Geography"},
+        "tags": ["german", "geography"],
+    }
+
+    result = format_card_text(note=note, deck_name="German")
+
+    assert "German" in result
+    assert "{{c1::Berlin}} is the capital" in result
+    assert "Geography" in result
+    assert "german" in result
+
+
+def test_format_card_markdown_cloze():
+    """Test markdown formatting for Cloze note type."""
+    note = {
+        "fields": {"Text": "{{c1::Tokyo}} is capital of Japan"},
+        "tags": ["geography"],
+    }
+
+    result = format_card_markdown(note=note, deck_name="Geography")
+
+    assert "**{{c1::Tokyo}} is capital of Japan**" in result
+    assert "Geography" in result
+    assert "geography" in result
+
+
+def test_format_card_text_custom_fields():
+    """Test text formatting for custom note type with multiple fields."""
+    note = {
+        "fields": {
+            "Prompt1": "_____ ist dort",
+            "Prompt2": "D- Flughafen",
+            "Answer": "Der Flughafen ist dort",
+        },
+        "tags": ["fsi", "drill"],
+    }
+
+    result = format_card_text(note=note, deck_name="DEU FSI")
+
+    assert "DEU FSI" in result
+    assert "Prompt1:" in result or "_____ ist dort" in result
+    assert "fsi" in result
+
+
+def test_format_card_markdown_custom_fields():
+    """Test markdown formatting for custom note type."""
+    note = {
+        "fields": {
+            "Field1": "Value 1",
+            "Field2": "Value 2",
+        },
+        "tags": ["custom"],
+    }
+
+    result = format_card_markdown(note=note, deck_name="Custom Deck")
+
+    assert "Field1" in result
+    assert "Value 1" in result
+    assert "Field2" in result
+    assert "Value 2" in result
+    assert "Custom Deck" in result
 
 
 def test_get_collection_nonexistent_env_path(monkeypatch):
@@ -180,7 +232,8 @@ def test_get_collection_with_lock_error():
 
     mock_error = DBError("database is locked")
 
-    with patch("main.Collection", side_effect=mock_error):
+    # Patch both Collection and DBError so the except clause can catch it
+    with patch("main.Collection", side_effect=mock_error), patch("main.DBError", DBError):
         with pytest.raises(click.ClickException, match="Collection is locked"):
             get_collection()
 
@@ -208,7 +261,7 @@ def test_read_cards_with_mock_collection(tmp_path):
     output_file = tmp_path / "output.json"
 
     with patch("main.get_collection", return_value=mock_col):
-        read_cards(
+        read_cards.callback(
             query="tag:test",
             output=str(output_file),
             format="json",
@@ -237,7 +290,7 @@ def test_read_cards_empty_results():
 
     with patch("main.get_collection", return_value=mock_col):
         # This will exit early with "No cards found" message
-        read_cards(query="nonexistent:tag", output=None, format="text", collection=None)
+        read_cards.callback(query="nonexistent:tag", output=None, format="text", collection=None)
 
     mock_col.close.assert_called_once()
 
@@ -258,7 +311,14 @@ def test_add_cards_from_json(tmp_path):
     mock_deck = {"id": 1}
     mock_col.decks.by_name.return_value = mock_deck
 
-    mock_model = {"id": 1, "name": "Basic"}
+    mock_model = {
+        "id": 1,
+        "name": "Basic",
+        "flds": [
+            {"name": "Front"},
+            {"name": "Back"},
+        ],
+    }
     mock_col.models.by_name.return_value = mock_model
 
     mock_note = MagicMock()
@@ -266,11 +326,14 @@ def test_add_cards_from_json(tmp_path):
     mock_col.new_note.return_value = mock_note
 
     with patch("main.get_collection", return_value=mock_col):
-        add_cards(
+        add_cards.callback(
             deck="Test Deck",
+            note_type="Basic",
             input_file=str(json_file),
             front=None,
             back=None,
+            cloze_text=None,
+            cloze_extra=None,
             tags=None,
             collection=None,
         )
@@ -294,17 +357,26 @@ def test_add_cards_from_csv(tmp_path):
     mock_col = MagicMock()
     mock_deck = {"id": 1}
     mock_col.decks.by_name.return_value = mock_deck
-    mock_model = {"id": 1}
+    mock_model = {
+        "id": 1,
+        "flds": [
+            {"name": "Front"},
+            {"name": "Back"},
+        ],
+    }
     mock_col.models.by_name.return_value = mock_model
     mock_note = MagicMock()
     mock_col.new_note.return_value = mock_note
 
     with patch("main.get_collection", return_value=mock_col):
-        add_cards(
+        add_cards.callback(
             deck="Test Deck",
+            note_type="Basic",
             input_file=str(csv_file),
             front=None,
             back=None,
+            cloze_text=None,
+            cloze_extra=None,
             tags=None,
             collection=None,
         )
@@ -319,17 +391,26 @@ def test_add_cards_single_via_args():
     mock_col = MagicMock()
     mock_deck = {"id": 1}
     mock_col.decks.by_name.return_value = mock_deck
-    mock_model = {"id": 1}
+    mock_model = {
+        "id": 1,
+        "flds": [
+            {"name": "Front"},
+            {"name": "Back"},
+        ],
+    }
     mock_col.models.by_name.return_value = mock_model
     mock_note = MagicMock()
     mock_col.new_note.return_value = mock_note
 
     with patch("main.get_collection", return_value=mock_col):
-        add_cards(
+        add_cards.callback(
             deck="Quick Deck",
+            note_type="Basic",
             input_file=None,
             front="Question",
             back="Answer",
+            cloze_text=None,
+            cloze_extra=None,
             tags="quick,test",
             collection=None,
         )
@@ -346,11 +427,14 @@ def test_add_cards_deck_not_found():
 
     with patch("main.get_collection", return_value=mock_col):
         with pytest.raises(click.ClickException, match="Deck not found"):
-            add_cards(
+            add_cards.callback(
                 deck="Nonexistent Deck",
+                note_type="Basic",
                 input_file=None,
                 front="Test",
                 back="Test",
+                cloze_text=None,
+                cloze_extra=None,
                 tags=None,
                 collection=None,
             )
@@ -366,14 +450,46 @@ def test_add_cards_missing_input():
 
     with patch("main.get_collection", return_value=mock_col):
         with pytest.raises(click.ClickException, match="Must provide either"):
-            add_cards(
+            add_cards.callback(
                 deck="Test Deck",
+                note_type="Basic",
                 input_file=None,
                 front=None,
                 back=None,
+                cloze_text=None,
+                cloze_extra=None,
                 tags=None,
                 collection=None,
             )
+
+
+def test_add_cards_invalid_note_type():
+    """Test error when note type doesn't exist."""
+    mock_col = MagicMock()
+    mock_deck = {"id": 1}
+    mock_col.decks.by_name.return_value = mock_deck
+    mock_col.models.by_name.return_value = None  # Note type not found
+    mock_col.models.all.return_value = [
+        {"name": "Basic"},
+        {"name": "Cloze"},
+        {"name": "Custom"},
+    ]
+
+    with patch("main.get_collection", return_value=mock_col):
+        with pytest.raises(click.ClickException, match="Note type 'InvalidType' not found"):
+            add_cards.callback(
+                deck="Test Deck",
+                note_type="InvalidType",
+                input_file=None,
+                front="Test",
+                back="Test",
+                cloze_text=None,
+                cloze_extra=None,
+                tags=None,
+                collection=None,
+            )
+
+    mock_col.close.assert_called_once()
 
 
 def test_list_decks():
@@ -388,7 +504,7 @@ def test_list_decks():
 
     with patch("main.get_collection", return_value=mock_col):
         # Just verify it doesn't crash - output goes to stdout
-        list_decks(collection=None)
+        list_decks.callback(collection=None)
 
     mock_col.close.assert_called_once()
 
@@ -418,7 +534,7 @@ def test_describe_deck():
     mock_col.get_note.return_value = mock_note
 
     with patch("main.get_collection", return_value=mock_col):
-        describe_deck(deck="Test Deck", collection=None)
+        describe_deck.callback(deck="Test Deck", collection=None)
 
     mock_col.close.assert_called_once()
 
@@ -430,7 +546,506 @@ def test_describe_deck_not_found():
 
     with patch("main.get_collection", return_value=mock_col):
         with pytest.raises(click.ClickException, match="Deck not found"):
-            describe_deck(deck="Nonexistent", collection=None)
+            describe_deck.callback(deck="Nonexistent", collection=None)
+
+
+def test_list_note_types():
+    """Test listing all note types in the collection."""
+    mock_col = MagicMock()
+    mock_col.models.all.return_value = [
+        {
+            "name": "Basic",
+            "type": 0,
+            "flds": [
+                {"name": "Front"},
+                {"name": "Back"},
+            ],
+        },
+        {
+            "name": "Cloze",
+            "type": 1,
+            "flds": [
+                {"name": "Text"},
+                {"name": "Extra"},
+            ],
+        },
+        {
+            "name": "FSI German Drills",
+            "type": 0,
+            "flds": [
+                {"name": "Prompt1"},
+                {"name": "Prompt2"},
+                {"name": "Answer"},
+            ],
+        },
+    ]
+
+    with patch("main.get_collection", return_value=mock_col):
+        list_note_types.callback(collection=None)
+
+    mock_col.close.assert_called_once()
+
+
+def test_describe_deck_note_types():
+    """Test describing note types used in a specific deck."""
+    mock_col = MagicMock()
+    mock_deck = {"id": 1, "name": "Test Deck"}
+    mock_col.decks.by_name.return_value = mock_deck
+    mock_col.find_notes.return_value = [1001, 1002, 1003]
+
+    # Mock three notes with different note types
+    mock_note_basic = MagicMock()
+    mock_note_basic.mid = 100
+    mock_note_basic.keys.return_value = ["Front", "Back"]
+    mock_note_basic.__getitem__ = lambda self, key: {"Front": "Hello", "Back": "Hallo"}[key]
+
+    mock_note_cloze = MagicMock()
+    mock_note_cloze.mid = 200
+    mock_note_cloze.keys.return_value = ["Text", "Extra"]
+    mock_note_cloze.__getitem__ = lambda self, key: {"Text": "{{c1::Berlin}} is the capital", "Extra": "Geography"}[key]
+
+    mock_note_fsi = MagicMock()
+    mock_note_fsi.mid = 300
+    mock_note_fsi.keys.return_value = ["Prompt1", "Prompt2", "Answer"]
+    mock_note_fsi.__getitem__ = lambda self, key: {"Prompt1": "_____ ist dort.", "Prompt2": "D- Flughafen", "Answer": "Der Flughafen ist dort."}[key]
+
+    mock_col.get_note.side_effect = [mock_note_basic, mock_note_cloze, mock_note_fsi]
+
+    # Mock models
+    mock_model_basic = {
+        "name": "Basic",
+        "type": 0,
+        "flds": [{"name": "Front"}, {"name": "Back"}],
+    }
+    mock_model_cloze = {
+        "name": "Cloze",
+        "type": 1,
+        "flds": [{"name": "Text"}, {"name": "Extra"}],
+    }
+    mock_model_fsi = {
+        "name": "FSI German Drills",
+        "type": 0,
+        "flds": [{"name": "Prompt1"}, {"name": "Prompt2"}, {"name": "Answer"}],
+    }
+
+    def get_model_side_effect(mid):
+        if mid == 100:
+            return mock_model_basic
+        elif mid == 200:
+            return mock_model_cloze
+        elif mid == 300:
+            return mock_model_fsi
+        return None
+
+    mock_col.models.get.side_effect = get_model_side_effect
+
+    with patch("main.get_collection", return_value=mock_col):
+        describe_deck_note_types.callback(deck="Test Deck", collection=None)
+
+    mock_col.close.assert_called_once()
+
+
+def test_describe_deck_note_types_not_found():
+    """Test error when describing note types for non-existent deck."""
+    mock_col = MagicMock()
+    mock_col.decks.by_name.return_value = None
+
+    with patch("main.get_collection", return_value=mock_col):
+        with pytest.raises(click.ClickException, match="Deck not found"):
+            describe_deck_note_types.callback(deck="Nonexistent", collection=None)
+
+
+def test_describe_deck_note_types_empty_deck():
+    """Test describing note types for a deck with no cards."""
+    mock_col = MagicMock()
+    mock_deck = {"id": 1, "name": "Empty Deck"}
+    mock_col.decks.by_name.return_value = mock_deck
+    mock_col.find_notes.return_value = []
+
+    with patch("main.get_collection", return_value=mock_col):
+        describe_deck_note_types.callback(deck="Empty Deck", collection=None)
+
+    mock_col.close.assert_called_once()
+
+
+def test_add_cards_cloze_explicit_fields(tmp_path):
+    """Test adding Cloze cards with explicit fields format."""
+    # Create test JSON with explicit fields
+    test_data = [
+        {
+            "fields": {
+                "Text": "{{c1::Berlin}} is the capital of Germany",
+                "Extra": "Geography",
+            },
+            "tags": ["german", "geography"],
+        },
+    ]
+
+    json_file = tmp_path / "cloze_cards.json"
+    json_file.write_text(json.dumps(test_data), encoding="utf-8")
+
+    # Mock collection with Cloze note type
+    mock_col = MagicMock()
+    mock_deck = {"id": 1}
+    mock_col.decks.by_name.return_value = mock_deck
+
+    mock_model = {
+        "id": 2,
+        "name": "Cloze",
+        "flds": [
+            {"name": "Text"},
+            {"name": "Extra"},
+        ],
+    }
+    mock_col.models.by_name.return_value = mock_model
+
+    mock_note = MagicMock()
+    mock_note.__setitem__ = MagicMock()
+    mock_col.new_note.return_value = mock_note
+
+    with patch("main.get_collection", return_value=mock_col):
+        add_cards.callback(
+            deck="German",
+            note_type="Cloze",
+            input_file=str(json_file),
+            front=None,
+            back=None,
+            cloze_text=None,
+            cloze_extra=None,
+            tags=None,
+            collection=None,
+        )
+
+    # Verify note fields were set correctly
+    mock_note.__setitem__.assert_any_call("Text", "{{c1::Berlin}} is the capital of Germany")
+    mock_note.__setitem__.assert_any_call("Extra", "Geography")
+    mock_col.add_note.assert_called_once()
+    mock_col.save.assert_called_once()
+
+
+def test_add_cards_custom_note_type_flexible(tmp_path):
+    """Test adding cards with custom note type using flexible field matching."""
+    # Create test JSON with lowercase field names (case-insensitive matching)
+    test_data = [
+        {
+            "prompt1": "_____ ist dort.",
+            "prompt2": "D- Flughafen",
+            "answer": "Der Flughafen ist dort.",
+            "tags": ["fsi", "drill"],
+        },
+    ]
+
+    json_file = tmp_path / "fsi_cards.json"
+    json_file.write_text(json.dumps(test_data), encoding="utf-8")
+
+    # Mock collection with custom FSI note type
+    mock_col = MagicMock()
+    mock_deck = {"id": 1}
+    mock_col.decks.by_name.return_value = mock_deck
+
+    mock_model = {
+        "id": 3,
+        "name": "FSI German Drills",
+        "flds": [
+            {"name": "Prompt1"},
+            {"name": "Prompt2"},
+            {"name": "Answer"},
+        ],
+    }
+    mock_col.models.by_name.return_value = mock_model
+
+    mock_note = MagicMock()
+    mock_note.__setitem__ = MagicMock()
+    mock_col.new_note.return_value = mock_note
+
+    with patch("main.get_collection", return_value=mock_col):
+        add_cards.callback(
+            deck="DEU FSI",
+            note_type="FSI German Drills",
+            input_file=str(json_file),
+            front=None,
+            back=None,
+            cloze_text=None,
+            cloze_extra=None,
+            tags=None,
+            collection=None,
+        )
+
+    # Verify case-insensitive field mapping worked
+    mock_note.__setitem__.assert_any_call("Prompt1", "_____ ist dort.")
+    mock_note.__setitem__.assert_any_call("Prompt2", "D- Flughafen")
+    mock_note.__setitem__.assert_any_call("Answer", "Der Flughafen ist dort.")
+    mock_col.add_note.assert_called_once()
+
+
+def test_add_cards_csv_flexible_columns(tmp_path):
+    """Test adding cards from CSV with flexible column names."""
+    # Create CSV with custom columns
+    csv_file = tmp_path / "custom_cards.csv"
+    csv_file.write_text(
+        'Text,Extra,Tags\n"{{c1::Tokyo}} is the capital","Asian capitals","geography"\n',
+        encoding="utf-8",
+    )
+
+    # Mock collection with Cloze note type
+    mock_col = MagicMock()
+    mock_deck = {"id": 1}
+    mock_col.decks.by_name.return_value = mock_deck
+
+    mock_model = {
+        "id": 2,
+        "name": "Cloze",
+        "flds": [
+            {"name": "Text"},
+            {"name": "Extra"},
+        ],
+    }
+    mock_col.models.by_name.return_value = mock_model
+
+    mock_note = MagicMock()
+    mock_note.__setitem__ = MagicMock()
+    mock_col.new_note.return_value = mock_note
+
+    with patch("main.get_collection", return_value=mock_col):
+        add_cards.callback(
+            deck="Geography",
+            note_type="Cloze",
+            input_file=str(csv_file),
+            front=None,
+            back=None,
+            cloze_text=None,
+            cloze_extra=None,
+            tags=None,
+            collection=None,
+        )
+
+    # Verify fields were mapped correctly
+    mock_note.__setitem__.assert_any_call("Text", "{{c1::Tokyo}} is the capital")
+    mock_note.__setitem__.assert_any_call("Extra", "Asian capitals")
+    mock_col.add_note.assert_called_once()
+
+
+def test_add_cards_invalid_field_name():
+    """Test error when providing invalid field name in explicit fields format."""
+    mock_col = MagicMock()
+    mock_deck = {"id": 1}
+    mock_col.decks.by_name.return_value = mock_deck
+
+    mock_model = {
+        "id": 2,
+        "name": "Cloze",
+        "flds": [
+            {"name": "Text"},
+            {"name": "Extra"},
+        ],
+    }
+    mock_col.models.by_name.return_value = mock_model
+
+    # Card data with invalid field name
+    from main import map_input_to_note_fields
+
+    card_data = {
+        "fields": {
+            "InvalidField": "Some text",
+            "Extra": "Extra info",
+        },
+        "tags": [],
+    }
+
+    with pytest.raises(click.ClickException, match="Field 'InvalidField' not found"):
+        map_input_to_note_fields(card_data=card_data, model=mock_model)
+
+
+def test_add_cards_front_back_with_wrong_note_type():
+    """Test error when using front/back with non-Basic note type."""
+    mock_model = {
+        "id": 2,
+        "name": "Cloze",
+        "flds": [
+            {"name": "Text"},
+            {"name": "Extra"},
+        ],
+    }
+
+    from main import map_input_to_note_fields
+
+    card_data = {
+        "front": "Question",
+        "back": "Answer",
+        "tags": [],
+    }
+
+    with pytest.raises(click.ClickException, match="Note type does not have Front/Back fields"):
+        map_input_to_note_fields(card_data=card_data, model=mock_model)
+
+
+def test_add_cards_no_matching_fields():
+    """Test error when no fields can be mapped."""
+    mock_model = {
+        "id": 2,
+        "name": "Custom",
+        "flds": [
+            {"name": "Field1"},
+            {"name": "Field2"},
+        ],
+    }
+
+    from main import map_input_to_note_fields
+
+    card_data = {
+        "wrongfield": "value",
+        "anotherfield": "value",
+        "tags": [],
+    }
+
+    with pytest.raises(click.ClickException, match="Could not map any input fields"):
+        map_input_to_note_fields(card_data=card_data, model=mock_model)
+
+
+def test_add_cards_cloze_via_cli_shortcut():
+    """Test adding a single Cloze card via --cloze-text shortcut."""
+    mock_col = MagicMock()
+    mock_deck = {"id": 1}
+    mock_col.decks.by_name.return_value = mock_deck
+
+    mock_model = {
+        "id": 2,
+        "name": "Cloze",
+        "type": 1,  # Cloze type
+        "flds": [
+            {"name": "Text"},
+            {"name": "Extra"},
+        ],
+    }
+    mock_col.models.by_name.return_value = mock_model
+
+    mock_note = MagicMock()
+    mock_note.__setitem__ = MagicMock()
+    mock_col.new_note.return_value = mock_note
+
+    with patch("main.get_collection", return_value=mock_col):
+        add_cards.callback(
+            deck="Quick Cloze",
+            note_type="Cloze",
+            input_file=None,
+            front=None,
+            back=None,
+            cloze_text="{{c1::Berlin}} is the capital of {{c2::Germany}}",
+            cloze_extra="Geography",
+            tags="europe,capitals",
+            collection=None,
+        )
+
+    # Verify fields were set correctly
+    mock_note.__setitem__.assert_any_call("Text", "{{c1::Berlin}} is the capital of {{c2::Germany}}")
+    mock_note.__setitem__.assert_any_call("Extra", "Geography")
+    mock_col.add_note.assert_called_once()
+    mock_col.save.assert_called_once()
+
+
+def test_add_cards_cloze_invalid_syntax():
+    """Test error when cloze-text doesn't have cloze deletion syntax."""
+    mock_col = MagicMock()
+    mock_deck = {"id": 1}
+    mock_col.decks.by_name.return_value = mock_deck
+
+    with patch("main.get_collection", return_value=mock_col):
+        with pytest.raises(click.ClickException, match="must contain at least one cloze deletion"):
+            add_cards.callback(
+                deck="Quick Cloze",
+                note_type="Cloze",
+                input_file=None,
+                front=None,
+                back=None,
+                cloze_text="Berlin is the capital of Germany",  # Missing {{c1::...}} syntax
+                cloze_extra=None,
+                tags=None,
+                collection=None,
+            )
+
+
+def test_has_cloze_deletion():
+    """Test the _has_cloze_deletion validation function."""
+    from main import _has_cloze_deletion
+
+    # Valid cloze deletions
+    assert _has_cloze_deletion("{{c1::Berlin}} is the capital")
+    assert _has_cloze_deletion("The capital is {{c2::Berlin}}")
+    assert _has_cloze_deletion("{{c1::Berlin::hint}} is a city")
+    assert _has_cloze_deletion("{{c1::A}} and {{c2::B}}")
+
+    # Invalid (no cloze deletion)
+    assert not _has_cloze_deletion("Berlin is the capital")
+    assert not _has_cloze_deletion("{{Berlin}}")  # Missing c1::
+    assert not _has_cloze_deletion("{c1::Berlin}")  # Single braces
+    assert not _has_cloze_deletion("")
+
+
+def test_add_cards_batch_cloze_with_invalid_skips(tmp_path):
+    """Test that batch Cloze import skips cards without cloze deletions."""
+    # Create JSON with mix of valid and invalid Cloze cards
+    json_file = tmp_path / "mixed_cloze.json"
+    json_file.write_text(
+        json.dumps([
+            {
+                "fields": {
+                    "Text": "{{c1::Valid}} cloze card",
+                    "Extra": "Good"
+                },
+                "tags": ["test"]
+            },
+            {
+                "fields": {
+                    "Text": "Invalid - no cloze deletion",
+                    "Extra": "Bad"
+                },
+                "tags": ["test"]
+            },
+            {
+                "fields": {
+                    "Text": "Another {{c1::valid}} one",
+                    "Extra": "Good"
+                },
+                "tags": ["test"]
+            },
+        ])
+    )
+
+    mock_col = MagicMock()
+    mock_deck = {"id": 1}
+    mock_col.decks.by_name.return_value = mock_deck
+
+    mock_model = {
+        "id": 2,
+        "name": "Cloze",
+        "type": 1,  # Cloze type
+        "flds": [
+            {"name": "Text"},
+            {"name": "Extra"},
+        ],
+    }
+    mock_col.models.by_name.return_value = mock_model
+
+    mock_note = MagicMock()
+    mock_note.__setitem__ = MagicMock()
+    mock_col.new_note.return_value = mock_note
+
+    with patch("main.get_collection", return_value=mock_col):
+        add_cards.callback(
+            deck="Test Cloze",
+            note_type="Cloze",
+            input_file=str(json_file),
+            front=None,
+            back=None,
+            cloze_text=None,
+            cloze_extra=None,
+            tags=None,
+            collection=None,
+        )
+
+    # Should have added only 2 cards (skipped the invalid one)
+    assert mock_col.add_note.call_count == 2
+    mock_col.save.assert_called_once()
 
 
 if __name__ == "__main__":

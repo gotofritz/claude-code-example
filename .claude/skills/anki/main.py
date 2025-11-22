@@ -13,17 +13,16 @@ official Anki Python API. It supports querying cards, listing decks, and
 adding new cards without direct database writes.
 """
 
+import csv
 import json
 import os
-import sys
+import re
+from io import StringIO
 from pathlib import Path
 
-try:
-    import click
-    from anki.collection import Collection
-    from anki.errors import DBError
-except ImportError:
-    sys.exit(1)
+import click
+from anki.collection import Collection
+from anki.errors import DBError
 
 
 def get_collection_path() -> Path:
@@ -87,8 +86,123 @@ def get_collection(*, collection_path: Path | None = None) -> Collection:
         raise click.ClickException(f"Failed to open collection: {e}")
 
 
+def validate_cloze_syntax(*, text: str) -> None:
+    """Validate cloze deletion syntax and provide helpful warnings.
+
+    Args:
+        text: Text field content to validate
+
+    Raises:
+        click.ClickException: If cloze syntax is invalid or missing
+    """
+    # Check if text contains any cloze deletions
+    cloze_pattern = r"\{\{c\d+::[^}]+\}\}"
+    if not re.search(cloze_pattern, text):
+        raise click.ClickException(
+            f"Cloze card Text field must contain at least one cloze deletion.\n"
+            f"Expected format: {{{{c1::text}}}} or {{{{c1::text::hint}}}}\n"
+            f"Example: '{{{{c1::Berlin}}}} is the capital of Germany'\n"
+            f"Received: '{text[:100]}...'" if len(text) > 100 else f"Received: '{text}'"
+        )
+
+
+def _has_cloze_deletion(text: str) -> bool:
+    """Check if text contains valid Cloze deletion syntax.
+
+    Args:
+        text: Text to check for cloze deletions
+
+    Returns:
+        True if text contains at least one cloze deletion ({{c1::...}}, etc.)
+    """
+    # Pattern matches {{c1::text}}, {{c2::text::hint}}, etc.
+    pattern = r"\{\{c\d+::[^}]+\}\}"
+    return bool(re.search(pattern, text))
+
+
+def map_input_to_note_fields(*, card_data: dict, model: dict) -> dict[str, str]:
+    """Map input card data to note type fields with flexible matching.
+
+    Supports multiple input formats:
+    - Explicit fields: {"fields": {"Text": "...", "Extra": "..."}}
+    - Legacy front/back: {"front": "...", "back": "..."} → Front/Back
+    - Flexible keys: case-insensitive matching to note type fields
+
+    Args:
+        card_data: Input card data dictionary
+        model: Anki note type model dictionary
+
+    Returns:
+        Dictionary mapping field names to values
+
+    Raises:
+        click.ClickException: If required fields are missing or cannot be mapped
+    """
+    # Get expected field names from model
+    model_fields = [field["name"] for field in model["flds"]]
+    field_mapping = {}
+
+    # Case 1: Explicit fields object
+    if "fields" in card_data:
+        fields_data = card_data["fields"]
+        if not isinstance(fields_data, dict):
+            raise click.ClickException("'fields' must be a dictionary")
+
+        # Direct mapping (case-sensitive)
+        for field_name, field_value in fields_data.items():
+            if field_name not in model_fields:
+                raise click.ClickException(
+                    f"Field '{field_name}' not found in note type.\n"
+                    f"Expected fields: {', '.join(model_fields)}"
+                )
+            field_mapping[field_name] = str(field_value)
+
+        return field_mapping
+
+    # Case 2: Legacy front/back format (for backward compatibility)
+    if "front" in card_data and "back" in card_data:
+        # Map to Front/Back fields (standard Basic note type)
+        if "Front" not in model_fields or "Back" not in model_fields:
+            raise click.ClickException(
+                f"Note type does not have Front/Back fields.\n"
+                f"Expected fields: {', '.join(model_fields)}\n"
+                f"Use explicit 'fields' format: {{\"fields\": {{\"{model_fields[0]}\": \"...\"}}}}"
+            )
+        return {
+            "Front": str(card_data["front"]),
+            "Back": str(card_data["back"]),
+        }
+
+    # Case 3: Flexible case-insensitive matching
+    # Create lowercase mapping of input keys
+    input_keys_lower = {k.lower(): k for k in card_data.keys() if k != "tags"}
+
+    # Try to match each model field (case-insensitive)
+    for field_name in model_fields:
+        field_lower = field_name.lower()
+        if field_lower in input_keys_lower:
+            original_key = input_keys_lower[field_lower]
+            field_mapping[field_name] = str(card_data[original_key])
+
+    # Validate that we have at least some fields mapped
+    if not field_mapping:
+        raise click.ClickException(
+            f"Could not map any input fields to note type fields.\n"
+            f"Expected fields: {', '.join(model_fields)}\n"
+            f"Provided keys: {', '.join([k for k in card_data.keys() if k != 'tags'])}\n"
+            f"Use explicit 'fields' format or provide fields with matching names."
+        )
+
+    return field_mapping
+
+
 def format_card_text(*, note: dict, deck_name: str) -> str:
-    """Format a single card as text.
+    """Format a single card as text with flexible field support.
+
+    Tries multiple note type formats:
+    - Basic: Front → Back
+    - Cloze: Text
+    - Custom: First 2-3 fields
 
     Args:
         note: Note dictionary with fields
@@ -98,15 +212,42 @@ def format_card_text(*, note: dict, deck_name: str) -> str:
         Formatted text string
     """
     fields = note.get("fields", {})
-    front = fields.get("Front", "N/A")
-    back = fields.get("Back", "N/A")
     tags = ", ".join(note.get("tags", []))
 
-    return f"[{deck_name}] {front} → {back} (tags: {tags})"
+    # Try Basic note type (Front/Back)
+    if "Front" in fields and "Back" in fields:
+        return f"[{deck_name}] {fields['Front']} → {fields['Back']} (tags: {tags})"
+
+    # Try Cloze note type (Text/Extra)
+    if "Text" in fields:
+        text = fields["Text"]
+        extra = fields.get("Extra", "")
+        if extra:
+            return f"[{deck_name}] {text} ({extra}) (tags: {tags})"
+        return f"[{deck_name}] {text} (tags: {tags})"
+
+    # Custom note type - display first few fields
+    field_items = list(fields.items())
+    if not field_items:
+        return f"[{deck_name}] (empty note) (tags: {tags})"
+
+    if len(field_items) == 1:
+        field_name, field_value = field_items[0]
+        return f"[{deck_name}] {field_name}: {field_value} (tags: {tags})"
+
+    # Multiple fields - show first 2-3
+    field_strs = [f"{name}: {value}" for name, value in field_items[:3]]
+    field_display = " | ".join(field_strs)
+    return f"[{deck_name}] {field_display} (tags: {tags})"
 
 
 def format_card_markdown(*, note: dict, deck_name: str) -> str:
-    """Format a single card as markdown.
+    """Format a single card as markdown with flexible field support.
+
+    Tries multiple note type formats:
+    - Basic: Front → Back
+    - Cloze: Text (Extra)
+    - Custom: All fields listed
 
     Args:
         note: Note dictionary with fields
@@ -116,15 +257,36 @@ def format_card_markdown(*, note: dict, deck_name: str) -> str:
         Formatted markdown string
     """
     fields = note.get("fields", {})
-    front = fields.get("Front", "N/A")
-    back = fields.get("Back", "N/A")
     tags = ", ".join(note.get("tags", []))
 
-    return f"- **{front}** → {back}\n  - Deck: {deck_name}\n  - Tags: {tags}"
+    # Try Basic note type (Front/Back)
+    if "Front" in fields and "Back" in fields:
+        return f"- **{fields['Front']}** → {fields['Back']}\n  - Deck: {deck_name}\n  - Tags: {tags}"
+
+    # Try Cloze note type (Text/Extra)
+    if "Text" in fields:
+        text = fields["Text"]
+        extra = fields.get("Extra", "")
+        if extra:
+            return f"- **{text}** ({extra})\n  - Deck: {deck_name}\n  - Tags: {tags}"
+        return f"- **{text}**\n  - Deck: {deck_name}\n  - Tags: {tags}"
+
+    # Custom note type - list all fields
+    field_items = list(fields.items())
+    if not field_items:
+        return f"- (empty note)\n  - Deck: {deck_name}\n  - Tags: {tags}"
+
+    if len(field_items) == 1:
+        field_name, field_value = field_items[0]
+        return f"- **{field_name}:** {field_value}\n  - Deck: {deck_name}\n  - Tags: {tags}"
+
+    # Multiple fields - list them
+    field_lines = "\n  - ".join([f"**{name}:** {value}" for name, value in field_items])
+    return f"- Card:\n  - {field_lines}\n  - Deck: {deck_name}\n  - Tags: {tags}"
 
 
 @click.group()
-def cli():
+def cli() -> None:
     """Anki skill for reading and writing cards."""
     pass
 
@@ -139,7 +301,7 @@ def cli():
     help="Output format (default: text)",
 )
 @click.option("--collection", help="Path to collection.anki2 file (auto-detected if not specified)")
-def read_cards(*, query: str, output: str | None, format: str, collection: str | None):
+def read_cards(*, query: str, output: str | None, format: str, collection: str | None) -> None:
     """Query and export cards from Anki collection."""
     col = None
     try:
@@ -187,16 +349,32 @@ def read_cards(*, query: str, output: str | None, format: str, collection: str |
                 click.echo(output_data)
 
         elif format == "csv":
-            output_lines = []
-            output_lines.append("Front,Back,Tags,Deck")
+            # Build CSV with flexible columns based on all fields present
+            # Collect all unique field names across all cards
+            all_field_names = set()
             for card in cards_data:
-                front = card["fields"].get("Front", "")
-                back = card["fields"].get("Back", "")
-                tags = ",".join(card["tags"])
-                deck = card["deck"]
-                output_lines.append(f'"{front}","{back}","{tags}","{deck}"')
+                all_field_names.update(card["fields"].keys())
 
-            output_data = "\n".join(output_lines)
+            # Sort field names for consistent ordering
+            field_names = sorted(all_field_names)
+
+            # Build CSV output
+            output_buffer = StringIO()
+            csv_writer = csv.writer(output_buffer)
+
+            # Write header
+            csv_writer.writerow(field_names + ["Tags", "Deck"])
+
+            # Write data rows
+            for card in cards_data:
+                row = []
+                for field_name in field_names:
+                    row.append(card["fields"].get(field_name, ""))
+                row.append(",".join(card["tags"]))
+                row.append(card["deck"])
+                csv_writer.writerow(row)
+
+            output_data = output_buffer.getvalue()
             if output:
                 Path(output).write_text(output_data, encoding="utf-8")
                 click.echo(f"Exported {len(cards_data)} cards to {output}")
@@ -227,7 +405,7 @@ def read_cards(*, query: str, output: str | None, format: str, collection: str |
 
 @cli.command(name="list-decks")
 @click.option("--collection", help="Path to collection.anki2 file (auto-detected if not specified)")
-def list_decks(*, collection: str | None):
+def list_decks(*, collection: str | None) -> None:
     """List all decks in the collection."""
     col = None
     try:
@@ -251,10 +429,106 @@ def list_decks(*, collection: str | None):
             col.close()
 
 
+@cli.command(name="list-note-types")
+@click.option("--collection", help="Path to collection.anki2 file (auto-detected if not specified)")
+def list_note_types(*, collection: str | None) -> None:
+    """List all note types in the collection with their fields."""
+    col = None
+    try:
+        collection_path = Path(collection) if collection else None
+        col = get_collection(collection_path=collection_path)
+
+        models = col.models.all()
+
+        click.echo(f"Found {len(models)} note type(s):\n")
+        for model in sorted(models, key=lambda m: m["name"]):
+            model_name = model["name"]
+            model_type = "Cloze" if model["type"] == 1 else "Standard"
+            fields = [field["name"] for field in model["flds"]]
+
+            click.echo(f"  {model_name} ({model_type})")
+            click.echo(f"    Fields: {', '.join(fields)}")
+
+    finally:
+        if col:
+            col.close()
+
+
+@cli.command(name="describe-deck-note-types")
+@click.option("--deck", required=True, help="Deck name")
+@click.option("--collection", help="Path to collection.anki2 file (auto-detected if not specified)")
+def describe_deck_note_types(*, deck: str, collection: str | None) -> None:
+    """Show note types used in a specific deck with sample data."""
+    col = None
+    try:
+        collection_path = Path(collection) if collection else None
+        col = get_collection(collection_path=collection_path)
+
+        # Find deck by name
+        deck_obj = col.decks.by_name(deck)
+        if not deck_obj:
+            raise click.ClickException(f"Deck not found: {deck}")
+
+        # Find all notes in deck
+        note_ids = col.find_notes(f"deck:{deck}")
+        if not note_ids:
+            click.echo(f"No cards found in deck: {deck}")
+            return
+
+        # Collect note types and sample cards
+        note_type_data = {}
+        for note_id in note_ids:
+            note = col.get_note(note_id)
+            model = col.models.get(note.mid)
+            if not model:
+                continue
+
+            model_name = model["name"]
+            if model_name not in note_type_data:
+                model_type = "Cloze" if model["type"] == 1 else "Standard"
+                fields = [field["name"] for field in model["flds"]]
+                note_type_data[model_name] = {
+                    "type": model_type,
+                    "fields": fields,
+                    "samples": [],
+                }
+
+            # Add sample if we have fewer than 3
+            if len(note_type_data[model_name]["samples"]) < 3:
+                sample_fields = {}
+                for field_name in note.keys():
+                    sample_fields[field_name] = note[field_name]
+                note_type_data[model_name]["samples"].append(sample_fields)
+
+        # Output
+        click.echo(f"Deck: {deck}")
+        click.echo(f"Found {len(note_type_data)} note type(s) in use:\n")
+
+        for model_name in sorted(note_type_data.keys()):
+            data = note_type_data[model_name]
+            click.echo(f"  {model_name} ({data['type']})")
+            click.echo(f"    Fields: {', '.join(data['fields'])}")
+            click.echo("    Sample cards:")
+
+            for i, sample in enumerate(data["samples"], 1):
+                click.echo(f"      Sample {i}:")
+                for field_name, field_value in sample.items():
+                    # Truncate long values
+                    display_value = field_value[:80] + "..." if len(field_value) > 80 else field_value
+                    # Replace newlines with spaces for cleaner output
+                    display_value = display_value.replace("\n", " ")
+                    click.echo(f"        {field_name}: {display_value}")
+            click.echo()
+
+    finally:
+        if col:
+            col.close()
+
+
 @cli.command(name="describe-deck")
 @click.option("--deck", required=True, help="Deck name")
 @click.option("--collection", help="Path to collection.anki2 file (auto-detected if not specified)")
-def describe_deck(*, deck: str, collection: str | None):
+def describe_deck(*, deck: str, collection: str | None) -> None:
     """Show detailed information about a specific deck."""
     col = None
     try:
@@ -297,20 +571,26 @@ def describe_deck(*, deck: str, collection: str | None):
 
 @cli.command(name="add-cards")
 @click.option("--deck", required=True, help="Target deck name")
+@click.option("--note-type", default="Basic", help="Note type name (default: Basic)")
 @click.option("--input", "input_file", help="CSV or JSON file with card data")
 @click.option("--front", help="Card front (for single card)")
 @click.option("--back", help="Card back (for single card)")
+@click.option("--cloze-text", help="Cloze Text field (convenience for single Cloze card)")
+@click.option("--cloze-extra", help="Cloze Extra field (optional, for single Cloze card)")
 @click.option("--tags", help="Comma-separated tags (for single card)")
 @click.option("--collection", help="Path to collection.anki2 file (auto-detected if not specified)")
 def add_cards(
     *,
     deck: str,
+    note_type: str,
     input_file: str | None,
     front: str | None,
     back: str | None,
+    cloze_text: str | None,
+    cloze_extra: str | None,
     tags: str | None,
     collection: str | None,
-):
+) -> None:
     """Add new cards to Anki collection. Requires Anki to be closed."""
     col = None
     try:
@@ -341,44 +621,81 @@ def add_cards(
 
                 for item in data:
                     if not isinstance(item, dict):
-                        raise click.ClickException("Each card must be an object with 'front' and 'back' fields")
-                    if "front" not in item or "back" not in item:
-                        raise click.ClickException("Each card must have 'front' and 'back' fields")
+                        raise click.ClickException("Each card must be an object")
 
+                    # Extract tags (common for all formats)
                     card_tags = item.get("tags", [])
                     if isinstance(card_tags, str):
                         card_tags = [t.strip() for t in card_tags.split(",")]
 
-                    cards_to_add.append({
-                        "front": item["front"],
-                        "back": item["back"],
-                        "tags": card_tags,
-                    })
+                    # Support multiple input formats:
+                    # 1. Explicit fields: {"fields": {"Text": "...", "Extra": "..."}, "tags": [...]}
+                    # 2. Legacy front/back: {"front": "...", "back": "...", "tags": [...]}
+                    # 3. Flexible keys: {"text": "...", "extra": "...", "tags": [...]}
+
+                    if "fields" in item:
+                        # Explicit fields format
+                        cards_to_add.append({
+                            "fields": item["fields"],
+                            "tags": card_tags,
+                        })
+                    elif "front" in item and "back" in item:
+                        # Legacy front/back format (backward compatible)
+                        cards_to_add.append({
+                            "front": item["front"],
+                            "back": item["back"],
+                            "tags": card_tags,
+                        })
+                    else:
+                        # Flexible format - pass all fields through for case-insensitive matching
+                        card_dict = {k: v for k, v in item.items() if k != "tags"}
+                        card_dict["tags"] = card_tags
+                        cards_to_add.append(card_dict)
 
             elif input_path.suffix.lower() == ".csv":
-                # CSV format
-                import csv
-
+                # CSV format with flexible column mapping
                 with input_path.open("r", encoding="utf-8") as f:
                     reader = csv.DictReader(f)
                     for row in reader:
-                        if "Front" not in row or "Back" not in row:
-                            raise click.ClickException("CSV must have 'Front' and 'Back' columns")
-
+                        # Extract tags if present
                         card_tags = []
                         if "Tags" in row and row["Tags"]:
                             card_tags = [t.strip() for t in row["Tags"].split(",")]
 
-                        cards_to_add.append({
-                            "front": row["Front"],
-                            "back": row["Back"],
-                            "tags": card_tags,
-                        })
+                        # Support flexible CSV formats:
+                        # 1. Standard Front/Back columns (legacy)
+                        # 2. Any columns matching note type field names (case-insensitive)
+
+                        # Pass all non-Tags columns through for flexible matching
+                        card_dict = {k: v for k, v in row.items() if k != "Tags" and v}  # Skip empty values
+                        card_dict["tags"] = card_tags
+                        cards_to_add.append(card_dict)
             else:
                 raise click.ClickException("Input file must be .json or .csv")
 
+        elif cloze_text:
+            # Single Cloze card from arguments
+            card_tags = []
+            if tags:
+                card_tags = [t.strip() for t in tags.split(",")]
+
+            # Validate Cloze deletion syntax
+            if not _has_cloze_deletion(cloze_text):
+                raise click.ClickException(
+                    "Cloze Text field must contain at least one cloze deletion.\n"
+                    "Use syntax: {{c1::text}}, {{c2::text}}, etc.\n"
+                    "Example: {{c1::Berlin}} is the capital of {{c2::Germany}}"
+                )
+
+            cards_to_add.append({
+                "fields": {
+                    "Text": cloze_text,
+                    "Extra": cloze_extra or "",
+                },
+                "tags": card_tags,
+            })
         elif front and back:
-            # Single card from arguments
+            # Single Basic card from arguments
             card_tags = []
             if tags:
                 card_tags = [t.strip() for t in tags.split(",")]
@@ -389,22 +706,50 @@ def add_cards(
                 "tags": card_tags,
             })
         else:
-            raise click.ClickException("Must provide either --input file or --front/--back arguments")
+            raise click.ClickException(
+                "Must provide either:\n"
+                "  --input file, or\n"
+                "  --front/--back arguments (for Basic cards), or\n"
+                "  --cloze-text argument (for Cloze cards)"
+            )
 
-        # Get the Basic note type
-        model = col.models.by_name("Basic")
+        # Get the specified note type
+        model = col.models.by_name(note_type)
         if not model:
-            raise click.ClickException("Basic note type not found in collection")
+            # List available note types to help user
+            available_models = col.models.all()
+            model_names = [m["name"] for m in available_models]
+            model_list = "\n  - ".join(sorted(model_names))
+            raise click.ClickException(
+                f"Note type '{note_type}' not found in collection.\n\n"
+                f"Available note types:\n  - {model_list}\n\n"
+                f"Use 'list-note-types' command to see field structures."
+            )
 
         # Add cards using high-level API
         added_count = 0
+        is_cloze_model = model.get("type") == 1  # 1 = Cloze note type
+
         for card_data in cards_to_add:
             # Create new note
             note = col.new_note(model)
 
+            # Map input fields to note type fields
+            field_mapping = map_input_to_note_fields(card_data=card_data, model=model)
+
+            # Validate Cloze cards have proper syntax
+            if is_cloze_model and "Text" in field_mapping:
+                text_value = field_mapping["Text"]
+                if not _has_cloze_deletion(text_value):
+                    click.echo(
+                        f"Warning: Skipping Cloze card without cloze deletion syntax: "
+                        f"'{text_value[:50]}...'" if len(text_value) > 50 else f"'{text_value}'"
+                    )
+                    continue
+
             # Set fields
-            note["Front"] = card_data["front"]
-            note["Back"] = card_data["back"]
+            for field_name, field_value in field_mapping.items():
+                note[field_name] = field_value
 
             # Set tags
             if card_data["tags"]:
