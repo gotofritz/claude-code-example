@@ -3,6 +3,7 @@
 Ask if user wants new branch. If yes: pull main, check CLAUDE.md issue tracker.
 
 **GitHub workflow:**
+
 1. Run `gh issue list --assignee @me` to list assigned issues
 2. If issues exist: ask user to pick an issue number OR create a new one
 3. If no issues: ask if they want to create a new issue
@@ -11,6 +12,7 @@ Ask if user wants new branch. If yes: pull main, check CLAUDE.md issue tracker.
 6. Push branch and create draft PR with `gh pr create --draft --title "{title}" --body "{summary from project-plan}"`
 
 **Linear workflow:**
+
 1. Fetch via API (LINEAR_KEY env), show assigned issues
 2. If issues exist: ask user to pick an issue ID OR create a new one
 3. If no issues: ask if they want to create a new issue
