@@ -1,22 +1,12 @@
 """Tests for Anki skill."""
 
 import json
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-# Mock only the anki imports (not click - we need real click for tests)
-sys.modules["anki"] = MagicMock()
-sys.modules["anki.collection"] = MagicMock()
-sys.modules["anki.errors"] = MagicMock()
-
-# Now we can safely import from the .claude/skills/anki directory
-sys.path.insert(0, str(Path(__file__).parent))
-# Import click for real (after main import which tries to import it)
 import click
-from main import (  # noqa: E402
+import pytest
+from main import (
     add_cards,
     describe_deck,
     describe_deck_note_types,
